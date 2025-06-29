@@ -3,11 +3,9 @@ import { parse, format, isValid, addDays } from "date-fns";
 import { FlightData } from "./entities";
 import { DateTime } from "luxon";
 import airportsDataRaw from "./airports.json";
-import airlineCodesRaw from "./airlines.json";
 
 // Use the .data property for lookups
 const airportsData = airportsDataRaw.data;
-const airlineCodes = airlineCodesRaw.data;
 
 /**
  * Maps cabin class to Kiwi portal format
@@ -203,30 +201,41 @@ export function createTimezonedDatetime(
  * Merges flight data from source into target
  */
 export function mergeFlightData(target: FlightData, source: FlightData): void {
-  // Merge deals
-  source.deals.forEach((deal) => {
-    const existingDealIndex = target.deals.findIndex((d) => d.id === deal.id);
-    if (existingDealIndex === -1) {
-      // No existing deal with this ID, add it
-      target.deals.push(deal);
-    } else {
-      // Deal with same ID exists, compare prices and keep the lowest
-      const existingDeal = target.deals[existingDealIndex];
-      const existingPrice = parseFloat(existingDeal.price) || 0;
-      const newPrice = parseFloat(deal.price) || 0;
-      
-      if (newPrice < existingPrice) {
-        // Replace with the cheaper deal
-        target.deals[existingDealIndex] = deal;
-        console.info(`💰 Replaced deal ${deal.id} with cheaper option: ${existingPrice} → ${newPrice}`);
-      }
+  // Merge bundles
+  source.bundles.forEach((bundle) => {
+    if (!target.bundles.find((b) => b.uniqueId === bundle.uniqueId)) {
+      // No existing bundle with this ID, add it
+      target.bundles.push(bundle);
     }
   });
 
   // Merge flights
   source.flights.forEach((flight) => {
-    if (!target.flights.find((f) => f.id === flight.id)) {
+    if (!target.flights.find((f) => f.uniqueId === flight.uniqueId)) {
       target.flights.push(flight);
+    }
+  });
+
+  // Merge booking options
+  source.bookingOptions.forEach((bookingOption) => {
+    const existingBookingOptionIndex = target.bookingOptions.findIndex((b) => b.uniqueId === bookingOption.uniqueId);
+    if (existingBookingOptionIndex === -1) {
+      // No existing booking option with this ID, add it
+      target.bookingOptions.push(bookingOption);
+    } else {
+      // Booking option with same ID exists, compare extraction dates and keep the latest if difference > 1min
+      const existingBookingOption = target.bookingOptions[existingBookingOptionIndex];
+      const existingDate = new Date(existingBookingOption.extractedAt);
+      const newDate = new Date(bookingOption.extractedAt);
+      
+      // Calculate time difference in minutes
+      const timeDiffMinutes = Math.abs(newDate.getTime() - existingDate.getTime()) / (1000 * 60);
+      
+      if (newDate > existingDate && timeDiffMinutes > 1) {
+        // Replace with the more recently extracted booking option only if difference > 1min
+        target.bookingOptions[existingBookingOptionIndex] = bookingOption;
+        console.info(`🕒 Replaced booking option ${bookingOption.uniqueId} with newer extraction (${timeDiffMinutes.toFixed(1)}min diff): ${existingDate.toISOString()} → ${newDate.toISOString()}`);
+      }
     }
   });
 }

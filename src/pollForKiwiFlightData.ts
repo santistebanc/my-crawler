@@ -1,5 +1,4 @@
 import { FlightData } from "./entities";
-import { HttpsProxyAgent } from "https-proxy-agent";
 import {
   RequestParams as KiwiRequestParams,
   KiwiExtractedData,
@@ -7,36 +6,9 @@ import {
 import {
   buildKiwiPortalSearchParams,
   buildPortalUrl,
-  mapCabinClassForKiwi,
+  mergeFlightData,
 } from "./helpers";
 import { extractFlightDataFromResponse } from "./extractFlightDataFromResponse";
-import { parse, format, isValid } from "date-fns";
-
-// Configure proxy
-const proxyUrl =
-  "http://groups-BUYPROXIES94952:apify_proxy_KIf2EQ6nvU4hmZKYyZ4eneVanvLoKz0cg6yN@proxy.apify.com:8000";
-const proxyAgent = new HttpsProxyAgent(proxyUrl);
-
-// Extend RequestInit to include agent property
-interface RequestInitWithAgent extends RequestInit {
-  agent?: any;
-}
-
-/**
- * Converts date from YYYY-MM-DD to dd/MM/yyyy format for Kiwi portal
- */
-function formatDateForKiwi(dateStr: string): string {
-  if (!dateStr) return "";
-  try {
-    const date = parse(dateStr, "yyyy-MM-dd", new Date());
-    if (isValid(date)) {
-      return format(date, "dd/MM/yyyy");
-    }
-  } catch (error) {
-    console.warn(`⚠️ Could not parse date for Kiwi: ${dateStr}`);
-  }
-  return dateStr;
-}
 
 /**
  * Handles Kiwi portal which uses a single search request
@@ -53,7 +25,7 @@ export async function pollForKiwiFlightData(
 
   // Kiwi usually returns all results at once, but we'll support multiple responses for robustness
   let isLastResponse = false;
-  let flightData: FlightData = { deals: [], flights: [] };
+  let flightData: FlightData = { bundles: [], flights: [], bookingOptions: [] };
   let attempt = 0;
   const maxAttempts = 3;
 
@@ -97,8 +69,7 @@ export async function pollForKiwiFlightData(
         method: "POST",
         headers,
         body: formData,
-        agent: proxyAgent,
-      } as RequestInitWithAgent);
+      });
 
       console.info(
         `📥 Kiwi search response: status=${
@@ -140,19 +111,10 @@ export async function pollForKiwiFlightData(
           htmlContent,
           "kiwi"
         );
-        // Merge results
-        flightData.deals.push(
-          ...extractedData.deals.filter(
-            (d) => !flightData.deals.find((e) => e.id === d.id)
-          )
-        );
-        flightData.flights.push(
-          ...extractedData.flights.filter(
-            (f) => !flightData.flights.find((e) => e.id === f.id)
-          )
-        );
+        // Merge results using the helper function
+        mergeFlightData(flightData, extractedData);
         console.info(
-          `📊 Kiwi poll extracted: ${extractedData.deals.length} deals, ${extractedData.flights.length} flights`
+          `📊 Kiwi poll extracted: ${extractedData.bundles.length} bundles, ${extractedData.flights.length} flights, ${extractedData.bookingOptions.length} booking options`
         );
       } else if (
         htmlContent.includes("No flights found") ||

@@ -21,7 +21,6 @@
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "fastify": "^4.24.3",
-    "https-proxy-agent": "^7.0.6",
     "luxon": "^3.6.1",
     "node-geocoder": "^4.4.1",
     "playwright": "^1.53.1",

@@ -20,7 +20,7 @@ fastify.get('/health', async (request, reply) => {
 });
 
 // Flight data endpoint (GET and POST)
-createEndpointPair<ScrapingRequest>('/getDeals', handleFlightScraping, 'deals scraping');
+createEndpointPair<ScrapingRequest>('/getBundles', handleFlightScraping, 'bundles scraping');
 
 // Function to handle flight scraping logic
 async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingResponse> {
@@ -110,8 +110,9 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
 
   // Initialize combined flight data
   const flightData: FlightData = {
-    deals: [],
+    bundles: [],
     flights: [],
+    bookingOptions: [],
   };
 
   const errors: string[] = [];
@@ -137,7 +138,7 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
         .then(fetchedFlightData => {
           // Merge the fetched flight data into the main flightData object
           mergeFlightData(flightData, fetchedFlightData);
-          fastify.log.info(`✅ Sky portal: Retrieved ${fetchedFlightData.deals.length} deals, ${fetchedFlightData.flights.length} flights`);
+          fastify.log.info(`✅ Sky portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
         })
         .catch(error => {
           const errorMsg = `Sky portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -155,7 +156,7 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
         .then(fetchedFlightData => {
           // Merge the fetched flight data into the main flightData object
           mergeFlightData(flightData, fetchedFlightData);
-          fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.deals.length} deals, ${fetchedFlightData.flights.length} flights`);
+          fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
         })
         .catch(error => {
           const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -174,20 +175,20 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   const linkedResponse = createLinkedEntitiesResponse(flightData);
 
   // Determine success status
-  const success = flightData.deals.length > 0 && errors.length === 0;
-  const partialSuccess = flightData.deals.length > 0 && errors.length > 0;
+  const success = flightData.bundles.length > 0 && errors.length === 0;
+  const partialSuccess = flightData.bundles.length > 0 && errors.length > 0;
 
   // Log comprehensive results summary
   const duration = Date.now() - startTime;
   fastify.log.info(`📊 Scraping completed in ${duration}ms`);
-  fastify.log.info(`📈 Final results: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
+  fastify.log.info(`📈 Final results: ${flightData.bundles.length} bundles, ${flightData.flights.length} flights, ${flightData.bookingOptions.length} booking options`);
   
   if (success) {
     fastify.log.info(`✅ Scraping successful - all portals completed without errors`);
   } else if (partialSuccess) {
-    fastify.log.warn(`⚠️ Partial success: ${flightData.deals.length} deals found, but ${errors.length} errors occurred`);
+    fastify.log.warn(`⚠️ Partial success: ${flightData.bundles.length} bundles found, but ${errors.length} errors occurred`);
   } else {
-    fastify.log.error(`❌ Scraping failed: No deals found and ${errors.length} errors occurred`);
+    fastify.log.error(`❌ Scraping failed: No bundles found and ${errors.length} errors occurred`);
   }
 
   const finalResponse = {
@@ -243,11 +244,13 @@ const validTypes = ['oneway', 'roundtrip'];
 
 function createLinkedEntitiesResponse(flightData: FlightData): LinkedFlightData {
   return {
-    deals: flightData.deals,
+    bundles: flightData.bundles,
     flights: flightData.flights as LinkedFlight[],
+    bookingOptions: flightData.bookingOptions,
     summary: {
-      totalDeals: flightData.deals.length,
-      totalFlights: flightData.flights.length
+      totalBundles: flightData.bundles.length,
+      totalFlights: flightData.flights.length,
+      totalBookingOptions: flightData.bookingOptions.length
     }
   };
 }

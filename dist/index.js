@@ -19,7 +19,7 @@ fastify.get('/health', async (request, reply) => {
     return { status: 'ok', timestamp: new Date().toISOString() };
 });
 // Flight data endpoint (GET and POST)
-createEndpointPair('/getDeals', handleFlightScraping, 'deals scraping');
+createEndpointPair('/getBundles', handleFlightScraping, 'bundles scraping');
 // Function to handle flight scraping logic
 async function handleFlightScraping(request) {
     const startTime = Date.now();
@@ -88,8 +88,9 @@ async function handleFlightScraping(request) {
     fastify.log.info(`Search details: ${adultsNum} adults, ${childrenNum} children, ${infantsNum} infants, ${cabinclass} class, ${currency} currency`);
     // Initialize combined flight data
     const flightData = {
-        deals: [],
+        bundles: [],
         flights: [],
+        bookingOptions: [],
     };
     const errors = [];
     const requestParams = {
@@ -107,51 +108,53 @@ async function handleFlightScraping(request) {
     const portalPromises = [];
     if (portalsToScrape.sky) {
         portalPromises.push((0, flightApiClient_1.fetchFlightData)('sky', requestParams)
-            .then(flightData => {
-            // Merge the flight data
-            (0, helpers_1.mergeFlightData)(flightData, flightData);
-            fastify.log.info(`✅ Sky portal: Retrieved ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
+            .then(fetchedFlightData => {
+            // Merge the fetched flight data into the main flightData object
+            (0, helpers_1.mergeFlightData)(flightData, fetchedFlightData);
+            fastify.log.info(`✅ Sky portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
         })
             .catch(error => {
             const errorMsg = `Sky portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
             errors.push(errorMsg);
             fastify.log.error(`❌ ${errorMsg}`);
+            // Log the full error for debugging
+            fastify.log.error(`❌ Full Sky portal error:`, error);
         }));
     }
-    // Kiwi portal fetching is temporarily disabled
-    // if (portalsToScrape.kiwi) {
-    //   portalPromises.push(
-    //     fetchFlightData('kiwi', requestParams)
-    //       .then(flightData => {
-    //         mergeFlightData(flightData, flightData);
-    //         fastify.log.info(`✅ Kiwi portal: Retrieved ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
-    //       })
-    //       .catch(error => {
-    //         const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-    //         errors.push(errorMsg);
-    //         fastify.log.error(`❌ ${errorMsg}`);
-    //       })
-    //   );
-    // }
+    if (portalsToScrape.kiwi) {
+        portalPromises.push((0, flightApiClient_1.fetchFlightData)('kiwi', requestParams)
+            .then(fetchedFlightData => {
+            // Merge the fetched flight data into the main flightData object
+            (0, helpers_1.mergeFlightData)(flightData, fetchedFlightData);
+            fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
+        })
+            .catch(error => {
+            const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            errors.push(errorMsg);
+            fastify.log.error(`❌ ${errorMsg}`);
+            // Log the full error for debugging
+            fastify.log.error(`❌ Full Kiwi portal error:`, error);
+        }));
+    }
     // Wait for all portal scraping to complete
     await Promise.allSettled(portalPromises);
     // Create the final response with linked entities
     const linkedResponse = createLinkedEntitiesResponse(flightData);
     // Determine success status
-    const success = flightData.deals.length > 0 && errors.length === 0;
-    const partialSuccess = flightData.deals.length > 0 && errors.length > 0;
+    const success = flightData.bundles.length > 0 && errors.length === 0;
+    const partialSuccess = flightData.bundles.length > 0 && errors.length > 0;
     // Log comprehensive results summary
     const duration = Date.now() - startTime;
     fastify.log.info(`📊 Scraping completed in ${duration}ms`);
-    fastify.log.info(`📈 Final results: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
+    fastify.log.info(`📈 Final results: ${flightData.bundles.length} bundles, ${flightData.flights.length} flights, ${flightData.bookingOptions.length} booking options`);
     if (success) {
         fastify.log.info(`✅ Scraping successful - all portals completed without errors`);
     }
     else if (partialSuccess) {
-        fastify.log.warn(`⚠️ Partial success: ${flightData.deals.length} deals found, but ${errors.length} errors occurred`);
+        fastify.log.warn(`⚠️ Partial success: ${flightData.bundles.length} bundles found, but ${errors.length} errors occurred`);
     }
     else {
-        fastify.log.error(`❌ Scraping failed: No deals found and ${errors.length} errors occurred`);
+        fastify.log.error(`❌ Scraping failed: No bundles found and ${errors.length} errors occurred`);
     }
     const finalResponse = {
         success: success || partialSuccess,
@@ -200,11 +203,13 @@ const validCabinClasses = ['Economy', 'PremiumEconomy', 'First', 'Business'];
 const validTypes = ['oneway', 'roundtrip'];
 function createLinkedEntitiesResponse(flightData) {
     return {
-        deals: flightData.deals,
+        bundles: flightData.bundles,
         flights: flightData.flights,
+        bookingOptions: flightData.bookingOptions,
         summary: {
-            totalDeals: flightData.deals.length,
-            totalFlights: flightData.flights.length
+            totalBundles: flightData.bundles.length,
+            totalFlights: flightData.flights.length,
+            totalBookingOptions: flightData.bookingOptions.length
         }
     };
 }

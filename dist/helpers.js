@@ -3,7 +3,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.mapCabinClassForKiwi = mapCabinClassForKiwi;
 exports.buildPortalSearchParams = buildPortalSearchParams;
+exports.buildKiwiPortalSearchParams = buildKiwiPortalSearchParams;
 exports.buildPortalUrl = buildPortalUrl;
 exports.extractSessionCookie = extractSessionCookie;
 exports.parseDateString = parseDateString;
@@ -13,10 +15,20 @@ exports.mergeFlightData = mergeFlightData;
 const date_fns_1 = require("date-fns");
 const luxon_1 = require("luxon");
 const airports_json_1 = __importDefault(require("./airports.json"));
-const airlines_json_1 = __importDefault(require("./airlines.json"));
 // Use the .data property for lookups
 const airportsData = airports_json_1.default.data;
-const airlineCodes = airlines_json_1.default.data;
+/**
+ * Maps cabin class to Kiwi portal format
+ */
+function mapCabinClassForKiwi(cabinclass) {
+    switch (cabinclass) {
+        case 'Economy': return 'M';
+        case 'PremiumEconomy': return 'W';
+        case 'First': return 'F';
+        case 'Business': return 'C';
+        default: return 'M';
+    }
+}
 /**
  * Builds URL search parameters from request parameters for flightsfinder.com portal URLs
  * @param requestParams - The request parameters containing flight search criteria
@@ -36,13 +48,52 @@ function buildPortalSearchParams(requestParams) {
     });
 }
 /**
+ * Builds URL search parameters specifically for Kiwi portal
+ * @param requestParams - The request parameters containing flight search criteria
+ * @returns URLSearchParams object ready to be used in URL construction
+ */
+function buildKiwiPortalSearchParams(requestParams) {
+    // Convert date format from YYYY-MM-DD to dd/MM/yyyy for Kiwi
+    const formatDateForKiwi = (dateStr) => {
+        if (!dateStr)
+            return "";
+        try {
+            const date = (0, date_fns_1.parse)(dateStr, "yyyy-MM-dd", new Date());
+            if ((0, date_fns_1.isValid)(date)) {
+                return (0, date_fns_1.format)(date, "dd/MM/yyyy");
+            }
+        }
+        catch (error) {
+            console.warn(`⚠️ Could not parse date for Kiwi: ${dateStr}`);
+        }
+        return dateStr;
+    };
+    return new URLSearchParams({
+        currency: requestParams.currency,
+        cabinclass: mapCabinClassForKiwi(requestParams.cabinclass),
+        originplace: requestParams.originplace || "",
+        destinationplace: requestParams.destinationplace || "",
+        outbounddate: formatDateForKiwi(requestParams.outbounddate || ""),
+        inbounddate: formatDateForKiwi(requestParams.inbounddate || ""),
+        adults: requestParams.adults.toString(),
+        children: requestParams.children.toString(),
+        infants: requestParams.infants.toString(),
+    });
+}
+/**
  * Builds a complete portal URL with search parameters
  * @param portal - The portal name (e.g., 'sky', 'kiwi')
  * @param requestParams - The request parameters containing flight search criteria
  * @returns Complete URL string for the portal
  */
 function buildPortalUrl(portal, requestParams) {
-    const searchParams = buildPortalSearchParams(requestParams);
+    let searchParams;
+    if (portal === 'kiwi') {
+        searchParams = buildKiwiPortalSearchParams(requestParams);
+    }
+    else {
+        searchParams = buildPortalSearchParams(requestParams);
+    }
     return `https://www.flightsfinder.com/portal/${portal}?${searchParams.toString()}`;
 }
 /**
@@ -93,17 +144,13 @@ function addDaysToDateString(dateStr, days) {
  */
 function createTimezonedDatetime(dateStr, timeStr, timezone) {
     try {
-        const parsedDate = parseDateString(dateStr);
-        if (!parsedDate)
-            return "";
+        const parsedDate = parseDateString(dateStr) || new Date();
         // Parse the time string using date-fns
         let timeDate;
-        // Handle 24-hour format (e.g., "14:30")
         if (timeStr.match(/^\d{1,2}:\d{2}$/)) {
             timeDate = (0, date_fns_1.parse)(timeStr, "HH:mm", new Date());
         }
         else {
-            // Handle 12-hour format (e.g., "2:30 PM")
             timeDate = (0, date_fns_1.parse)(timeStr, "h:mm a", new Date());
         }
         if (!(0, date_fns_1.isValid)(timeDate)) {
@@ -113,15 +160,14 @@ function createTimezonedDatetime(dateStr, timeStr, timezone) {
         // Combine the date and time
         const combinedDate = new Date(parsedDate);
         combinedDate.setHours(timeDate.getHours(), timeDate.getMinutes(), 0, 0);
-        // Handle different timezone formats
+        // Use Luxon for all timezone handling
+        let dt;
         if (!timezone || timezone === "\\N" || timezone === "null") {
             // Default to UTC for missing or null timezones
-            const utcDate = new Date(combinedDate.getTime() - combinedDate.getTimezoneOffset() * 60000);
-            return (0, date_fns_1.format)(utcDate, "yyyy-MM-dd HH:mm 'UTC'");
+            dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" });
         }
-        // Handle UTC±HH:MM format
-        if (timezone.startsWith('UTC')) {
-            // Normalize minus sign (could be unicode)
+        else if (timezone.startsWith('UTC')) {
+            // Handle UTC±HH:MM format
             const tz = timezone.replace('−', '-').replace('–', '-');
             const match = tz.match(/^UTC([+-])(\d{2}):(\d{2})$/);
             if (match) {
@@ -129,45 +175,67 @@ function createTimezonedDatetime(dateStr, timeStr, timezone) {
                 const hours = parseInt(match[2], 10);
                 const minutes = parseInt(match[3], 10);
                 const offsetMinutes = sign * (hours * 60 + minutes);
-                // Apply offset to UTC time
-                const utcDate = new Date(combinedDate.getTime() - combinedDate.getTimezoneOffset() * 60000);
-                const offsetDate = new Date(utcDate.getTime() + offsetMinutes * 60000);
-                return (0, date_fns_1.format)(offsetDate, "yyyy-MM-dd HH:mm 'UTC'XXX");
+                // Create a DateTime in the specified offset timezone
+                dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" }).plus({ minutes: offsetMinutes });
+                // Convert to the offset timezone string format
+                const offsetStr = `${sign === 1 ? '+' : '-'}${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                return dt.toFormat("yyyy-MM-dd'T'HH:mm:ss.SSS") + offsetStr;
+            }
+            else {
+                dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" });
             }
         }
-        // Handle IANA timezone format (e.g., "Australia/Perth", "Europe/Vienna")
-        try {
-            const luxonDateTime = luxon_1.DateTime.fromJSDate(combinedDate, { zone: timezone });
-            if (luxonDateTime.isValid) {
-                return luxonDateTime.toISO();
+        else {
+            // Handle IANA timezone format (e.g., "Australia/Perth", "Europe/Vienna")
+            dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: timezone });
+            if (!dt.isValid) {
+                dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" });
             }
         }
-        catch (error) {
-            console.warn(`⚠️ Could not parse IANA timezone "${timezone}": ${error}`);
-        }
-        // Fallback: just append the timezone string
-        const dateTimeStr = (0, date_fns_1.format)(combinedDate, "yyyy-MM-dd HH:mm");
-        return `${dateTimeStr} ${timezone}`;
+        // Return ISO string with timezone offset
+        return dt.toISO() || '';
     }
     catch (error) {
         console.warn(`⚠️ Error creating timezoned datetime: ${error}`);
-        return "";
+        return luxon_1.DateTime.fromJSDate(new Date()).toUTC().toISO() || '';
     }
 }
 /**
  * Merges flight data from source into target
  */
 function mergeFlightData(target, source) {
-    // Merge deals
-    source.deals.forEach((deal) => {
-        if (!target.deals.find((d) => d.id === deal.id)) {
-            target.deals.push(deal);
+    // Merge bundles
+    source.bundles.forEach((bundle) => {
+        if (!target.bundles.find((b) => b.uniqueId === bundle.uniqueId)) {
+            // No existing bundle with this ID, add it
+            target.bundles.push(bundle);
         }
     });
     // Merge flights
     source.flights.forEach((flight) => {
-        if (!target.flights.find((f) => f.id === flight.id)) {
+        if (!target.flights.find((f) => f.uniqueId === flight.uniqueId)) {
             target.flights.push(flight);
+        }
+    });
+    // Merge booking options
+    source.bookingOptions.forEach((bookingOption) => {
+        const existingBookingOptionIndex = target.bookingOptions.findIndex((b) => b.uniqueId === bookingOption.uniqueId);
+        if (existingBookingOptionIndex === -1) {
+            // No existing booking option with this ID, add it
+            target.bookingOptions.push(bookingOption);
+        }
+        else {
+            // Booking option with same ID exists, compare extraction dates and keep the latest if difference > 1min
+            const existingBookingOption = target.bookingOptions[existingBookingOptionIndex];
+            const existingDate = new Date(existingBookingOption.extractedAt);
+            const newDate = new Date(bookingOption.extractedAt);
+            // Calculate time difference in minutes
+            const timeDiffMinutes = Math.abs(newDate.getTime() - existingDate.getTime()) / (1000 * 60);
+            if (newDate > existingDate && timeDiffMinutes > 1) {
+                // Replace with the more recently extracted booking option only if difference > 1min
+                target.bookingOptions[existingBookingOptionIndex] = bookingOption;
+                console.info(`🕒 Replaced booking option ${bookingOption.uniqueId} with newer extraction (${timeDiffMinutes.toFixed(1)}min diff): ${existingDate.toISOString()} → ${newDate.toISOString()}`);
+            }
         }
     });
 }

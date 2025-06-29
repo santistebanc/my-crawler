@@ -1,11 +1,21 @@
-import { RequestParams } from "./fetchPageAndExtractData";
+import { RequestParams } from "./fetchSkyPageAndExtractData";
 import { FlightData } from "./entities";
+/**
+ * Maps cabin class to Kiwi portal format
+ */
+export declare function mapCabinClassForKiwi(cabinclass: 'Economy' | 'PremiumEconomy' | 'First' | 'Business' | undefined): string;
 /**
  * Builds URL search parameters from request parameters for flightsfinder.com portal URLs
  * @param requestParams - The request parameters containing flight search criteria
  * @returns URLSearchParams object ready to be used in URL construction
  */
 export declare function buildPortalSearchParams(requestParams: RequestParams): URLSearchParams;
+/**
+ * Builds URL search parameters specifically for Kiwi portal
+ * @param requestParams - The request parameters containing flight search criteria
+ * @returns URLSearchParams object ready to be used in URL construction
+ */
+export declare function buildKiwiPortalSearchParams(requestParams: RequestParams): URLSearchParams;
 /**
  * Builds a complete portal URL with search parameters
  * @param portal - The portal name (e.g., 'sky', 'kiwi')

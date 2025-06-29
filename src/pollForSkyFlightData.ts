@@ -1,5 +1,4 @@
 import { FlightData } from "./entities";
-import { HttpsProxyAgent } from "https-proxy-agent";
 import {
   RequestParams as SkyRequestParams,
   SkyExtractedData,
@@ -7,16 +6,6 @@ import {
 import { buildPortalUrl, extractSessionCookie } from "./helpers";
 import { extractFlightDataFromResponse } from "./extractFlightDataFromResponse";
 import { mergeFlightData } from "./helpers";
-
-// Configure proxy
-const proxyUrl =
-  "http://groups-BUYPROXIES94952:apify_proxy_KIf2EQ6nvU4hmZKYyZ4eneVanvLoKz0cg6yN@proxy.apify.com:8000";
-const proxyAgent = new HttpsProxyAgent(proxyUrl);
-
-// Extend RequestInit to include agent property
-interface RequestInitWithAgent extends RequestInit {
-  agent?: any;
-}
 
 /**
  * Handles Sky portal which uses polling
@@ -43,8 +32,9 @@ export async function pollForSkyFlightData(
 
   // Initialize flight data structure
   const flightData: FlightData = {
-    deals: [],
+    bundles: [],
     flights: [],
+    bookingOptions: [],
   };
 
   let currentCookie = pageData.cookie; // Start with initial cookie
@@ -108,8 +98,7 @@ export async function pollForSkyFlightData(
           method: "POST",
           headers,
           body: formData,
-          agent: proxyAgent,
-        } as RequestInitWithAgent);
+        });
 
         console.info(`📥 Poll response: status=${response.status}, headers=${response.headers.get('content-type')}`);
 
@@ -152,19 +141,21 @@ export async function pollForSkyFlightData(
           console.info(`✅ Found flight data in response`);
           
           // Track current entity counts before extraction
-          const dealsBefore = flightData.deals.length;
+          const bundlesBefore = flightData.bundles.length;
           const flightsBefore = flightData.flights.length;
+          const bookingOptionsBefore = flightData.bookingOptions.length;
           
           const extractedData = extractFlightDataFromResponse(htmlContent, 'sky');
           mergeFlightData(flightData, extractedData);
           
           // Calculate new entities added after merging
-          const newDeals = flightData.deals.length - dealsBefore;
+          const newBundles = flightData.bundles.length - bundlesBefore;
           const newFlights = flightData.flights.length - flightsBefore;
+          const newBookingOptions = flightData.bookingOptions.length - bookingOptionsBefore;
           
           // Log only the new entities added
-          if (newDeals > 0 || newFlights > 0) {
-            console.info(`📈 Poll ${pollCount} added: ${newDeals} deals, ${newFlights} flights`);
+          if (newBundles > 0 || newFlights > 0 || newBookingOptions > 0) {
+            console.info(`📈 Poll ${pollCount} added: ${newBundles} bundles, ${newFlights} flights, ${newBookingOptions} booking options`);
           } else {
             console.info(`📊 Poll ${pollCount}: No new entities added`);
           }

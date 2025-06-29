@@ -1,14 +1,5 @@
 import { Portal } from "./types";
-import { HttpsProxyAgent } from "https-proxy-agent";
 import { buildPortalUrl, extractSessionCookie } from "./helpers";
-
-const proxyUrl =
-  "http://groups-BUYPROXIES94952:apify_proxy_KIf2EQ6nvU4hmZKYyZ4eneVanvLoKz0cg6yN@proxy.apify.com:8000";
-const proxyAgent = new HttpsProxyAgent(proxyUrl);
-
-interface RequestInitWithAgent extends RequestInit {
-  agent?: any;
-}
 
 export interface RequestParams {
   adults: number;
@@ -56,8 +47,7 @@ export async function fetchSkyPageAndExtractData(
         Connection: "keep-alive",
         "Upgrade-Insecure-Requests": "1",
       },
-      agent: proxyAgent,
-    } as RequestInitWithAgent);
+    });
 
     console.info(`📥 Page response: status=${response.status}, content-type=${response.headers.get('content-type')}`);
 
