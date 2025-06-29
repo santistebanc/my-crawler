@@ -1,0 +1,1 @@
+{"version":3,"file":"pollForFlightData.d.ts","sourceRoot":"","sources":["../src/pollForFlightData.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,MAAM,EAAE,MAAM,SAAS,CAAC;AACjC,OAAO,EAAE,UAAU,EAAE,MAAM,YAAY,CAAC;AAExC,OAAO,EACL,aAAa,EACb,aAAa,EACd,MAAM,2BAA2B,CAAC;AAenC,wBAAsB,iBAAiB,CACrC,MAAM,EAAE,MAAM,EACd,QAAQ,EAAE,aAAa,EACvB,aAAa,EAAE,aAAa,GAC3B,OAAO,CAAC,UAAU,CAAC,CA4MrB"}

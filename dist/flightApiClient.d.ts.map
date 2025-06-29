@@ -1,0 +1,1 @@
+{"version":3,"file":"flightApiClient.d.ts","sourceRoot":"","sources":["../src/flightApiClient.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,MAAM,EAAE,MAAM,SAAS,CAAC;AACjC,OAAO,EAAE,UAAU,EAAE,MAAM,YAAY,CAAC;AAExC,OAAO,EAA2B,aAAa,EAAE,MAAM,2BAA2B,CAAC;AAGnF,wBAAsB,eAAe,CACnC,MAAM,EAAE,MAAM,EACd,aAAa,EAAE,aAAa,GAC3B,OAAO,CAAC,UAAU,CAAC,CAYrB"}

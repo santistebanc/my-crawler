@@ -1,0 +1,168 @@
+# Code Organization Standards
+
+## File Structure Ordering
+
+Always organize code files in the following order (top to bottom):
+
+### 1. Imports and Dependencies
+- External library imports
+- Internal module imports
+- Type imports
+
+### 2. Configuration and Setup
+- Constants and configuration objects
+- Class/function instantiations
+- Global state setup
+- **Server/application instances** (Fastify, Express, etc.)
+
+### 3. Entry Point / Main Execution (if applicable)
+- **IMPORTANT**: Only call entry points AFTER all dependencies are initialized
+- Server start calls
+- Main function calls
+- Application initialization
+- Entry point execution
+
+### 4. API Surface / Public Interface
+- **For web servers**: Route definitions and endpoints
+- **For libraries**: Public exports and main functions
+- **For components**: Props interfaces and main component
+- **For classes**: Public methods and properties
+
+### 5. Implementation Details / Helper Functions
+- **Order by usage**: Functions that call other functions come BEFORE the functions they call
+- Main business logic functions (called by API surface)
+- Private/helper functions (called by business logic)
+- Utility functions (called by helper functions)
+- Internal processing functions (lowest level)
+
+## Function Ordering by Usage
+
+**CRITICAL**: Functions must be ordered by their usage/calling hierarchy:
+
+```typescript
+// ✅ CORRECT: Calling function comes before called function
+function mainFunction() {
+  return helperFunction(); // calls helperFunction
+}
+
+function helperFunction() {
+  return utilityFunction(); // calls utilityFunction
+}
+
+function utilityFunction() {
+  return "result";
+}
+
+// ❌ WRONG: Called function comes before calling function
+function utilityFunction() {
+  return "result";
+}
+
+function helperFunction() {
+  return utilityFunction(); // this function is defined after the one it calls
+}
+
+function mainFunction() {
+  return helperFunction(); // this function is defined after the one it calls
+}
+```
+
+## Rationale
+
+This ordering follows the principle of "API-first" reading:
+- **Top section**: Shows what the code does (public interface)
+- **Bottom section**: Shows how it does it (implementation details)
+- **Usage order**: Functions are defined before they are used, making the flow logical
+
+This makes code easier to:
+- Understand the purpose quickly
+- Navigate and find specific functionality
+- Follow the execution flow naturally
+- Maintain and modify
+- Onboard new developers
+
+## Examples
+
+### Web Server Files
+```typescript
+// 1. Imports
+import Fastify from 'fastify';
+import { someFunction } from './utils';
+
+// 2. Configuration
+const app = Fastify({ logger: true });
+
+// 3. Entry Point (AFTER app is initialized)
+start();
+
+// 4. API Surface (Routes)
+app.get('/health', healthHandler);
+app.post('/users', createUserHandler);
+app.get('/users/:id', getUserHandler);
+
+// 5. Implementation Details (ordered by usage)
+async function start() { 
+  await app.listen({ port: 3000 }); // uses 'app' which is now initialized
+}
+
+async function createUserHandler() { 
+  return await validateAndCreateUser(); // calls validateAndCreateUser
+}
+
+async function validateAndCreateUser() {
+  const isValid = validateUserData(); // calls validateUserData
+  if (isValid) {
+    return await saveUser();
+  }
+}
+
+function validateUserData() {
+  return checkEmailFormat() && checkPasswordStrength(); // calls helper functions
+}
+
+function checkEmailFormat() { /* ... */ }
+function checkPasswordStrength() { /* ... */ }
+async function saveUser() { /* ... */ }
+```
+
+### Library Files
+```typescript
+// 1. Imports
+import { SomeType } from './types';
+
+// 2. Configuration
+const DEFAULT_CONFIG = { /* ... */ };
+
+// 3. Entry Point (AFTER config is set up)
+mainFunction();
+
+// 4. Public Interface
+export function mainFunction() { 
+  return processData(); // calls processData
+}
+
+// 5. Implementation Details (ordered by usage)
+function processData() {
+  const cleaned = cleanInput(); // calls cleanInput
+  return transformData(cleaned); // calls transformData
+}
+
+function cleanInput() {
+  return removeWhitespace(); // calls removeWhitespace
+}
+
+function removeWhitespace() { /* ... */ }
+function transformData() { /* ... */ }
+```
+
+## Enforcement
+
+When writing or refactoring code:
+1. **ALWAYS** initialize dependencies before calling entry points
+2. Then show the public interface/API surface
+3. Move implementation details to the bottom
+4. **Order functions by usage**: calling functions come before called functions
+5. Keep related functionality grouped together
+6. Use clear section comments to separate logical blocks
+7. When in doubt, ask: "Which function calls which?" and order accordingly
+8. **CRITICAL**: Never call functions that depend on uninitialized variables 

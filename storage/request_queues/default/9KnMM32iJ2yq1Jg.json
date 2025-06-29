@@ -1,0 +1,9 @@
+{
+	"id": "9KnMM32iJ2yq1Jg",
+	"json": "{\"id\":\"9KnMM32iJ2yq1Jg\",\"url\":\"https://www.flightsfinder.com/portal/sky?originplace=SLP&destinationplace=BER&outbounddate=2025-10-10&inbounddate=&cabinclass=Economy&adults=1&children=0&infants=0&currency=EUR\",\"loadedUrl\":\"https://www.flightsfinder.com/portal/sky?originplace=SLP&destinationplace=BER&outbounddate=2025-10-10&inbounddate=&cabinclass=Economy&adults=1&children=0&infants=0&currency=EUR\",\"uniqueKey\":\"https://www.flightsfinder.com/portal/sky?adults=1&cabinclass=Economy&children=0&currency=EUR&destinationplace=BER&inbounddate=&infants=0&originplace=SLP&outbounddate=2025-10-10\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"__crawlee\":{\"state\":4}},\"handledAt\":\"2025-06-28T12:00:57.787Z\"}",
+	"method": "GET",
+	"orderNo": null,
+	"retryCount": 0,
+	"uniqueKey": "https://www.flightsfinder.com/portal/sky?adults=1&cabinclass=Economy&children=0&currency=EUR&destinationplace=BER&inbounddate=&infants=0&originplace=SLP&outbounddate=2025-10-10",
+	"url": "https://www.flightsfinder.com/portal/sky?originplace=SLP&destinationplace=BER&outbounddate=2025-10-10&inbounddate=&cabinclass=Economy&adults=1&children=0&infants=0&currency=EUR"
+}
