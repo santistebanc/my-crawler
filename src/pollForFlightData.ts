@@ -42,7 +42,6 @@ export async function pollForFlightData(
 
   // Initialize flight data structure
   const flightData: FlightData = {
-    airlines: [],
     deals: [],
     flights: [],
   };
@@ -153,7 +152,6 @@ export async function pollForFlightData(
           
           // Track current entity counts before extraction
           const dealsBefore = flightData.deals.length;
-          const airlinesBefore = flightData.airlines.length;
           const flightsBefore = flightData.flights.length;
           
           const extractedData = extractFlightDataFromResponse(htmlContent, portal);
@@ -161,12 +159,11 @@ export async function pollForFlightData(
           
           // Calculate new entities added after merging
           const newDeals = flightData.deals.length - dealsBefore;
-          const newAirlines = flightData.airlines.length - airlinesBefore;
           const newFlights = flightData.flights.length - flightsBefore;
           
           // Log only the new entities added
-          if (newDeals > 0 || newAirlines > 0 || newFlights > 0) {
-            console.info(`📈 Poll ${pollCount} added: ${newDeals} deals, ${newAirlines} airlines, ${newFlights} flights`);
+          if (newDeals > 0 || newFlights > 0) {
+            console.info(`📈 Poll ${pollCount} added: ${newDeals} deals, ${newFlights} flights`);
           } else {
             console.info(`📊 Poll ${pollCount}: No new entities added`);
           }
@@ -224,7 +221,7 @@ export async function pollForFlightData(
   }
 
   console.info(`🏁 Polling completed: ${pollCount} attempts, ${failedPolls} failed`);
-  console.info(`📊 Final results: ${flightData.deals.length} deals, ${flightData.airlines.length} airlines, ${flightData.flights.length} flights`);
+  console.info(`📊 Final results: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
   
   return flightData;
 }

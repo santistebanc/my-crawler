@@ -1,9 +1,0 @@
-{
-	"id": "hTDRwt1W7tBIahj",
-	"json": "{\"id\":\"hTDRwt1W7tBIahj\",\"url\":\"https://www.flightsfinder.com/portal/kiwi?currency=EUR&type=oneway&cabinclass=M&originplace=SLP&destinationplace=BER&outbounddate=10%2F10%2F2025&inbounddate=&adults=1&children=0&infants=0\",\"loadedUrl\":\"https://www.flightsfinder.com/portal/kiwi?currency=EUR&type=oneway&cabinclass=M&originplace=SLP&destinationplace=BER&outbounddate=10%2F10%2F2025&inbounddate=&adults=1&children=0&infants=0\",\"uniqueKey\":\"https://www.flightsfinder.com/portal/kiwi?adults=1&cabinclass=M&children=0&currency=EUR&destinationplace=BER&inbounddate=&infants=0&originplace=SLP&outbounddate=10%2F10%2F2025&type=oneway\",\"method\":\"GET\",\"noRetry\":false,\"retryCount\":0,\"errorMessages\":[],\"headers\":{},\"userData\":{\"__crawlee\":{\"state\":4}},\"handledAt\":\"2025-06-28T12:00:54.076Z\"}",
-	"method": "GET",
-	"orderNo": null,
-	"retryCount": 0,
-	"uniqueKey": "https://www.flightsfinder.com/portal/kiwi?adults=1&cabinclass=M&children=0&currency=EUR&destinationplace=BER&inbounddate=&infants=0&originplace=SLP&outbounddate=10%2F10%2F2025&type=oneway",
-	"url": "https://www.flightsfinder.com/portal/kiwi?currency=EUR&type=oneway&cabinclass=M&originplace=SLP&destinationplace=BER&outbounddate=10%2F10%2F2025&inbounddate=&adults=1&children=0&infants=0"
-}

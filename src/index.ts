@@ -109,8 +109,7 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   fastify.log.info(`Search details: ${adultsNum} adults, ${childrenNum} children, ${infantsNum} infants, ${cabinclass} class, ${currency} currency`);
 
   // Initialize combined flight data
-  const combinedFlightData: FlightData = {
-    airlines: [],
+  const flightData: FlightData = {
     deals: [],
     flights: [],
   };
@@ -135,15 +134,17 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   if (portalsToScrape.sky) {
     portalPromises.push(
       fetchFlightData('sky', requestParams)
-        .then(flightData => {
-          // Merge the flight data
-          mergeFlightData(combinedFlightData, flightData);
-          fastify.log.info(`✅ Sky portal: Retrieved ${flightData.deals.length} deals, ${flightData.airlines.length} airlines, ${flightData.flights.length} flights`);
+        .then(fetchedFlightData => {
+          // Merge the fetched flight data into the main flightData object
+          mergeFlightData(flightData, fetchedFlightData);
+          fastify.log.info(`✅ Sky portal: Retrieved ${fetchedFlightData.deals.length} deals, ${fetchedFlightData.flights.length} flights`);
         })
         .catch(error => {
           const errorMsg = `Sky portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           errors.push(errorMsg);
           fastify.log.error(`❌ ${errorMsg}`);
+          // Log the full error for debugging
+          fastify.log.error(`❌ Full Sky portal error:`, error);
         })
     );
   }
@@ -152,14 +153,17 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   // if (portalsToScrape.kiwi) {
   //   portalPromises.push(
   //     fetchFlightData('kiwi', requestParams)
-  //       .then(flightData => {
-  //         mergeFlightData(combinedFlightData, flightData);
-  //         fastify.log.info(`✅ Kiwi portal: Retrieved ${flightData.deals.length} deals, ${flightData.airlines.length} airlines, ${flightData.flights.length} flights`);
+  //       .then(fetchedFlightData => {
+  //         // Merge the fetched flight data into the main flightData object
+  //         mergeFlightData(flightData, fetchedFlightData);
+  //         fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.deals.length} deals, ${fetchedFlightData.flights.length} flights`);
   //       })
   //       .catch(error => {
   //         const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
   //         errors.push(errorMsg);
   //         fastify.log.error(`❌ ${errorMsg}`);
+  //         // Log the full error for debugging
+  //         fastify.log.error(`❌ Full Kiwi portal error:`, error);
   //       })
   //   );
   // }
@@ -168,21 +172,21 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   await Promise.allSettled(portalPromises);
 
   // Create the final response with linked entities
-  const linkedResponse = createLinkedEntitiesResponse(combinedFlightData);
+  const linkedResponse = createLinkedEntitiesResponse(flightData);
 
   // Determine success status
-  const success = combinedFlightData.deals.length > 0 && errors.length === 0;
-  const partialSuccess = combinedFlightData.deals.length > 0 && errors.length > 0;
+  const success = flightData.deals.length > 0 && errors.length === 0;
+  const partialSuccess = flightData.deals.length > 0 && errors.length > 0;
 
   // Log comprehensive results summary
   const duration = Date.now() - startTime;
   fastify.log.info(`📊 Scraping completed in ${duration}ms`);
-  fastify.log.info(`📈 Final results: ${combinedFlightData.deals.length} deals, ${combinedFlightData.airlines.length} airlines, ${combinedFlightData.flights.length} flights`);
+  fastify.log.info(`📈 Final results: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
   
   if (success) {
     fastify.log.info(`✅ Scraping successful - all portals completed without errors`);
   } else if (partialSuccess) {
-    fastify.log.warn(`⚠️ Partial success: ${combinedFlightData.deals.length} deals found, but ${errors.length} errors occurred`);
+    fastify.log.warn(`⚠️ Partial success: ${flightData.deals.length} deals found, but ${errors.length} errors occurred`);
   } else {
     fastify.log.error(`❌ Scraping failed: No deals found and ${errors.length} errors occurred`);
   }
@@ -239,28 +243,10 @@ const validCabinClasses = ['Economy', 'PremiumEconomy', 'First', 'Business'];
 const validTypes = ['oneway', 'roundtrip'];
 
 function createLinkedEntitiesResponse(flightData: FlightData): LinkedFlightData {
-  // Create maps for quick lookup
-  const airlineMap = new Map(flightData.airlines.map(airline => [airline.id, airline]));
-  const flightMap = new Map(flightData.flights.map(flight => [flight.id, flight]));
-  
-  // Create linked deals with embedded flights
-  const linkedDeals = flightData.deals.map(deal => {
-    const linkedFlights = deal.flightIds
-      .map(flightId => flightMap.get(flightId))
-      .filter(flight => flight !== undefined) as LinkedFlight[];
-    
-    return {
-      ...deal,
-      flights: linkedFlights
-    };
-  });
-  
   return {
-    airlines: flightData.airlines,
-    deals: linkedDeals,
+    deals: flightData.deals,
     flights: flightData.flights as LinkedFlight[],
     summary: {
-      totalAirlines: flightData.airlines.length,
       totalDeals: flightData.deals.length,
       totalFlights: flightData.flights.length
     }

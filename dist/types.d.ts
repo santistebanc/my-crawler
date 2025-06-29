@@ -57,18 +57,14 @@ export interface DetailedFlightResult extends FlightResult {
     portal?: Portal;
     expectedResults?: number;
 }
-import { FlightData, Airline, Flight as FlightEntity, Deal } from './entities';
+import { FlightData, Flight as FlightEntity, Deal } from './entities';
 export interface LinkedFlight extends FlightEntity {
 }
-export interface LinkedDeal extends Deal {
-    flights: LinkedFlight[];
-}
+export type LinkedDeal = Deal;
 export interface LinkedFlightData {
-    airlines: Airline[];
     deals: LinkedDeal[];
     flights: LinkedFlight[];
     summary: {
-        totalAirlines: number;
         totalDeals: number;
         totalFlights: number;
     };

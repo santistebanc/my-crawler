@@ -87,8 +87,7 @@ async function handleFlightScraping(request) {
     fastify.log.info(`Parameters: originplace=${originplace}, destinationplace=${destinationplace}, outbounddate=${outbounddate}`);
     fastify.log.info(`Search details: ${adultsNum} adults, ${childrenNum} children, ${infantsNum} infants, ${cabinclass} class, ${currency} currency`);
     // Initialize combined flight data
-    const combinedFlightData = {
-        airlines: [],
+    const flightData = {
         deals: [],
         flights: [],
     };
@@ -110,8 +109,8 @@ async function handleFlightScraping(request) {
         portalPromises.push((0, flightApiClient_1.fetchFlightData)('sky', requestParams)
             .then(flightData => {
             // Merge the flight data
-            (0, helpers_1.mergeFlightData)(combinedFlightData, flightData);
-            fastify.log.info(`✅ Sky portal: Retrieved ${flightData.deals.length} deals, ${flightData.airlines.length} airlines, ${flightData.flights.length} flights`);
+            (0, helpers_1.mergeFlightData)(flightData, flightData);
+            fastify.log.info(`✅ Sky portal: Retrieved ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
         })
             .catch(error => {
             const errorMsg = `Sky portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -124,8 +123,8 @@ async function handleFlightScraping(request) {
     //   portalPromises.push(
     //     fetchFlightData('kiwi', requestParams)
     //       .then(flightData => {
-    //         mergeFlightData(combinedFlightData, flightData);
-    //         fastify.log.info(`✅ Kiwi portal: Retrieved ${flightData.deals.length} deals, ${flightData.airlines.length} airlines, ${flightData.flights.length} flights`);
+    //         mergeFlightData(flightData, flightData);
+    //         fastify.log.info(`✅ Kiwi portal: Retrieved ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
     //       })
     //       .catch(error => {
     //         const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -137,19 +136,19 @@ async function handleFlightScraping(request) {
     // Wait for all portal scraping to complete
     await Promise.allSettled(portalPromises);
     // Create the final response with linked entities
-    const linkedResponse = createLinkedEntitiesResponse(combinedFlightData);
+    const linkedResponse = createLinkedEntitiesResponse(flightData);
     // Determine success status
-    const success = combinedFlightData.deals.length > 0 && errors.length === 0;
-    const partialSuccess = combinedFlightData.deals.length > 0 && errors.length > 0;
+    const success = flightData.deals.length > 0 && errors.length === 0;
+    const partialSuccess = flightData.deals.length > 0 && errors.length > 0;
     // Log comprehensive results summary
     const duration = Date.now() - startTime;
     fastify.log.info(`📊 Scraping completed in ${duration}ms`);
-    fastify.log.info(`📈 Final results: ${combinedFlightData.deals.length} deals, ${combinedFlightData.airlines.length} airlines, ${combinedFlightData.flights.length} flights`);
+    fastify.log.info(`📈 Final results: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
     if (success) {
         fastify.log.info(`✅ Scraping successful - all portals completed without errors`);
     }
     else if (partialSuccess) {
-        fastify.log.warn(`⚠️ Partial success: ${combinedFlightData.deals.length} deals found, but ${errors.length} errors occurred`);
+        fastify.log.warn(`⚠️ Partial success: ${flightData.deals.length} deals found, but ${errors.length} errors occurred`);
     }
     else {
         fastify.log.error(`❌ Scraping failed: No deals found and ${errors.length} errors occurred`);
@@ -200,25 +199,10 @@ const validCabinClasses = ['Economy', 'PremiumEconomy', 'First', 'Business'];
 // Helper for type validation
 const validTypes = ['oneway', 'roundtrip'];
 function createLinkedEntitiesResponse(flightData) {
-    // Create maps for quick lookup
-    const airlineMap = new Map(flightData.airlines.map(airline => [airline.id, airline]));
-    const flightMap = new Map(flightData.flights.map(flight => [flight.id, flight]));
-    // Create linked deals with embedded flights
-    const linkedDeals = flightData.deals.map(deal => {
-        const linkedFlights = deal.flightIds
-            .map(flightId => flightMap.get(flightId))
-            .filter(flight => flight !== undefined);
-        return {
-            ...deal,
-            flights: linkedFlights
-        };
-    });
     return {
-        airlines: flightData.airlines,
-        deals: linkedDeals,
+        deals: flightData.deals,
         flights: flightData.flights,
         summary: {
-            totalAirlines: flightData.airlines.length,
             totalDeals: flightData.deals.length,
             totalFlights: flightData.flights.length
         }

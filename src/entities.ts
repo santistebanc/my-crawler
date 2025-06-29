@@ -1,42 +1,29 @@
 // Entity interfaces for flight data
 
-export interface Airline {
-  id: string;
-  name: string;
-  code?: string;
-  extractedAt: string;
-}
+import { DateTime } from "luxon";
+import { parse, isValid } from "date-fns";
+import { parseDateString } from "./helpers";
 
 export interface Flight {
   id: string;
-  airlineId: string;
   flightNumber: string;
   departure: string;
   arrival: string;
-  departureAirportCode: string;
-  arrivalAirportCode: string;
-  extractedAt: string;
+  from: string;
+  to: string;
 }
 
 export interface Deal {
   id: string;
   portal: string;
-  dealName: string;
   flightIds: string[];
   agency: string;
   price: string;
   link: string;
-  tripSummary: {
-    departure: string;
-    arrival: string;
-    stops: string;
-  };
   currency: string;
-  extractedAt: string;
 }
 
 export interface FlightData {
-  airlines: Airline[];
   deals: Deal[];
   flights: Flight[];
 }
@@ -45,6 +32,52 @@ export interface FlightData {
 export function generateId(prefix: string, data: string): string {
   const hash = data.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
   return `${prefix}_${hash}`;
+}
+
+/**
+ * Creates a unique deal ID based on the sorted array of flight IDs
+ */
+export function createDealIdFromFlightIds(flightIds: string[]): string {
+  // Sort flight IDs to ensure consistent ordering
+  const sortedFlightIds = [...flightIds].sort();
+  // Create a hash-like string from the sorted flight IDs
+  const flightIdsString = sortedFlightIds.join('-');
+  // Generate a simple hash for the string
+  let hash = 0;
+  for (let i = 0; i < flightIdsString.length; i++) {
+    const char = flightIdsString.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  // Convert to positive hex string and take first 8 characters
+  const hashString = Math.abs(hash).toString(16).padStart(8, '0').substring(0, 8);
+  return `deal_${hashString}`;
+}
+
+/**
+ * Creates a datetime string without timezone for ID generation
+ */
+export function createDatetimeForId(dateStr: string, timeStr: string): string {
+  try {
+    const parsedDate = parseDateString(dateStr) || new Date();
+    // Parse the time string using date-fns
+    let timeDate: Date;
+    if (timeStr.match(/^\d{1,2}:\d{2}$/)) {
+      timeDate = parse(timeStr, "HH:mm", new Date());
+    } else {
+      timeDate = parse(timeStr, "h:mm a", new Date());
+    }
+    if (!isValid(timeDate)) {
+      return "";
+    }
+    // Combine the date and time
+    const combinedDate = new Date(parsedDate);
+    combinedDate.setHours(timeDate.getHours(), timeDate.getMinutes(), 0, 0);
+    // Format as YYYYMMDDHHMM (without timezone)
+    return DateTime.fromJSDate(combinedDate).toFormat("yyyyMMddHHmm");
+  } catch (error) {
+    return "";
+  }
 }
 
 export function extractAirportCode(airportString: string): string {
@@ -60,10 +93,4 @@ export function extractAirportName(airportString: string): string {
     return parts.slice(1).join(' ');
   }
   return airportString;
-}
-
-export function extractAirlineCode(airlineString: string): string {
-  // Extract airline code from strings like "Aeromexico AM1531"
-  const match = airlineString.match(/^([A-Za-z]+)\s/);
-  return match ? match[1] : airlineString;
 } 

@@ -64,28 +64,21 @@ export interface DetailedFlightResult extends FlightResult {
 }
 
 // Import the FlightData interface from entities
-import { FlightData, Airline, Flight as FlightEntity, Deal } from './entities';
+import { FlightData, Flight as FlightEntity, Deal } from './entities';
 
 // Enhanced interfaces for linked entities
 export interface LinkedFlight extends FlightEntity {
   // No additional fields - just use the base Flight properties
 }
 
-export interface LinkedDeal extends Deal {
-  flights: LinkedFlight[];
-}
+// No longer embed flights in deals
+export type LinkedDeal = Deal;
 
 export interface LinkedFlightData {
   // Base entities (without links)
-  airlines: Airline[];
-  
-  // Enhanced entities with links
-  deals: LinkedDeal[];
+  deals: LinkedDeal[]; // Now just Deal[]
   flights: LinkedFlight[];
-  
-  // Summary statistics
   summary: {
-    totalAirlines: number;
     totalDeals: number;
     totalFlights: number;
   };

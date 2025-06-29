@@ -4,7 +4,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateId = generateId;
 exports.extractAirportCode = extractAirportCode;
 exports.extractAirportName = extractAirportName;
-exports.extractAirlineCode = extractAirlineCode;
 // Utility functions for entity management
 function generateId(prefix, data) {
     const hash = data.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -22,10 +21,5 @@ function extractAirportName(airportString) {
         return parts.slice(1).join(' ');
     }
     return airportString;
-}
-function extractAirlineCode(airlineString) {
-    // Extract airline code from strings like "Aeromexico AM1531"
-    const match = airlineString.match(/^([A-Za-z]+)\s/);
-    return match ? match[1] : airlineString;
 }
 //# sourceMappingURL=entities.js.map

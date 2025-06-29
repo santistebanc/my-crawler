@@ -41,6 +41,8 @@ const entities_1 = require("./entities");
 const cheerio = __importStar(require("cheerio"));
 const airports_json_1 = __importDefault(require("./airports.json"));
 const helpers_1 = require("./helpers");
+// Use the .data property for lookups
+const airportsData = airports_json_1.default.data;
 /**
  * Extracts flight data from HTML response
  */
@@ -48,11 +50,10 @@ function extractFlightDataFromResponse(htmlData, portal) {
     try {
         if (!htmlData || htmlData.length === 0) {
             console.warn(`⚠️ Empty HTML data received from ${portal} portal`);
-            return { airlines: [], deals: [], flights: [] };
+            return { deals: [], flights: [] };
         }
         const $ = cheerio.load(htmlData);
         const flightData = {
-            airlines: [],
             deals: [],
             flights: [],
         };
@@ -77,12 +78,12 @@ function extractFlightDataFromResponse(htmlData, portal) {
             }
         });
         console.info(`✅ ${portal} portal extraction complete: ${successfulExtractions} successful, ${failedExtractions} failed`);
-        console.info(`📊 Extracted: ${flightData.deals.length} deals, ${flightData.airlines.length} airlines, ${flightData.flights.length} flights`);
+        console.info(`📊 Extracted: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
         return flightData;
     }
     catch (error) {
         console.error(`❌ Error extracting flight data from ${portal}:`, error);
-        return { airlines: [], deals: [], flights: [] };
+        return { deals: [], flights: [] };
     }
 }
 /**
@@ -92,12 +93,10 @@ function extractDealFromListItem($item, portal, $) {
     try {
         const extractedAt = new Date().toISOString();
         const flightData = {
-            airlines: [],
             deals: [],
             flights: [],
         };
         // Deal name and airline from the main item
-        const dealName = $item.find("._flight_name").first().text().trim();
         const airline = $item.find(".airlines-name").first().text().trim();
         // Price from the main item
         const price = $item.find(".prices").first().text().trim();
@@ -120,69 +119,6 @@ function extractDealFromListItem($item, portal, $) {
                 departureDate = dateMatch[1];
             }
         }
-        // Trip summary data from modal header
-        let tripDepartureTime = "";
-        let tripArrivalTime = "";
-        let tripDepartureAirport = "";
-        let tripArrivalAirport = "";
-        let stops = "";
-        let hasNextDayArrival = false;
-        const tripSection = modal.find(".trip").first();
-        if (tripSection.length) {
-            // Get departure time and airport from first time element
-            const firstTime = tripSection.find(".time").eq(0);
-            if (firstTime.length) {
-                tripDepartureTime = firstTime.contents().first().text().trim();
-                tripDepartureAirport = firstTime.find("span").text().trim();
-            }
-            // Get arrival time and airport from last time element
-            const lastTime = tripSection.find(".time").eq(-1);
-            if (lastTime.length) {
-                const arrivalTimeWithIndicator = lastTime.contents().first().text().trim();
-                // Check if arrival time has +1 indicator (next day)
-                hasNextDayArrival = arrivalTimeWithIndicator.includes("+1");
-                tripArrivalTime = arrivalTimeWithIndicator.replace(/\+\d+/, "").trim();
-                tripArrivalAirport = lastTime.find("span").text().trim();
-            }
-            // Duration and stops from ._stops
-            const stopsSection = tripSection.find("._stops");
-            if (stopsSection.length) {
-                const durationElement = stopsSection.find(".time").first();
-                if (durationElement.length) {
-                    // Duration is already extracted, we just need stops count
-                    const stopsElement = stopsSection.find(".stop");
-                    if (stopsElement.length) {
-                        const stopsText = stopsElement.text().trim();
-                        // Extract just the number from "2 stops" or similar
-                        const stopsMatch = stopsText.match(/(\d+)/);
-                        stops = stopsMatch ? stopsMatch[1] : stopsText;
-                    }
-                }
-            }
-        }
-        // Get timezone information for trip summary
-        const depAirportCode = (0, entities_1.extractAirportCode)(tripDepartureAirport);
-        const arrAirportCode = (0, entities_1.extractAirportCode)(tripArrivalAirport);
-        if (!depAirportCode || !arrAirportCode) {
-            console.warn(`⚠️ Could not extract airport codes from: ${tripDepartureAirport} -> ${tripArrivalAirport}`);
-            return null;
-        }
-        const depTimezone = airports_json_1.default[depAirportCode]?.timezone;
-        const arrTimezone = airports_json_1.default[arrAirportCode]?.timezone;
-        if (!depTimezone) {
-            throw new Error(`No timezone found for departure airport: ${depAirportCode}`);
-        }
-        if (!arrTimezone) {
-            throw new Error(`No timezone found for arrival airport: ${arrAirportCode}`);
-        }
-        // Calculate arrival date for trip summary (may be next day)
-        let arrivalDate = departureDate;
-        if (hasNextDayArrival && departureDate) {
-            arrivalDate = (0, helpers_1.addDaysToDateString)(departureDate, 1);
-        }
-        // Format trip summary times with timezone information
-        const formattedTripDeparture = (0, helpers_1.createTimezonedDatetime)(departureDate, tripDepartureTime, depTimezone);
-        const formattedTripArrival = (0, helpers_1.createTimezonedDatetime)(arrivalDate, tripArrivalTime, arrTimezone);
         if (modal.length) {
             // Flights (previously segments)
             let currentDateOffset = 0; // Track days offset from base departure date
@@ -195,22 +131,31 @@ function extractDealFromListItem($item, portal, $) {
                 const flightArrivalTime = times.eq(1).text().trim();
                 const flightDepartureAirport = airports.eq(0).text().trim();
                 const flightArrivalAirport = airports.eq(1).text().trim();
+                // Debug: Log extracted times
+                console.info(`🔍 Flight ${i + 1}: Departure time="${flightDepartureTime}", Arrival time="${flightArrivalTime}"`);
                 // Check if arrival time has +1 indicator (next day)
                 const hasNextDayArrival = flightArrivalTime.includes("+1");
                 const cleanArrivalTime = flightArrivalTime.replace(/\+\d+/, "").trim();
                 if (flightNumberFull) {
                     // Extract airline info from full flight number
                     const airlineName = flightNumberFull.split(" ")[0] || airline;
-                    const airlineId = (0, entities_1.generateId)("airline", airlineName);
-                    const airlineCode = (0, entities_1.extractAirlineCode)(flightNumberFull);
-                    // Extract just the flight number part (e.g., "AM1531" from "Aeromexico AM1531")
-                    const flightNumber = flightNumberFull.split(" ").slice(1).join(" ") || flightNumberFull;
+                    // Improved extraction: match 2-4 uppercase letters followed by digits
+                    // e.g., "EJU5215", "U2 1234", "LH123", "BAW1234"
+                    let flightNumber = null;
+                    const match = flightNumberFull.match(/([A-Z]{2,4})\s?(\d{1,})/);
+                    if (match) {
+                        flightNumber = match[1] + match[2];
+                    }
+                    else {
+                        // fallback: remove non-alphanumeric and use as is
+                        flightNumber = flightNumberFull.replace(/[^A-Z0-9]/gi, "");
+                    }
                     // Extract airport codes
                     const depAirportCode = (0, entities_1.extractAirportCode)(flightDepartureAirport);
                     const arrAirportCode = (0, entities_1.extractAirportCode)(flightArrivalAirport);
                     // Get timezone information for airports
-                    const depTimezone = airports_json_1.default[depAirportCode]?.timezone;
-                    const arrTimezone = airports_json_1.default[arrAirportCode]?.timezone;
+                    const depTimezone = airportsData[depAirportCode]?.timezone;
+                    const arrTimezone = airportsData[arrAirportCode]?.timezone;
                     if (!depTimezone) {
                         throw new Error(`No timezone found for departure airport: ${depAirportCode}`);
                     }
@@ -232,10 +177,9 @@ function extractDealFromListItem($item, portal, $) {
                     const formattedFlightDeparture = (0, helpers_1.createTimezonedDatetime)(flightDate, flightDepartureTime, depTimezone);
                     const formattedFlightArrival = (0, helpers_1.createTimezonedDatetime)(flightArrivalDate, cleanArrivalTime, arrTimezone);
                     // Create flight object
-                    const flightId = (0, entities_1.generateId)("flight", `${airlineCode}-${flightNumber}-${depAirportCode}-${arrAirportCode}`);
+                    const flightId = (0, entities_1.generateId)("flight", `${flightNumber}-${depAirportCode}-${arrAirportCode}`);
                     const flight = {
                         id: flightId,
-                        airlineId,
                         flightNumber,
                         departure: formattedFlightDeparture,
                         arrival: formattedFlightArrival,
@@ -245,56 +189,58 @@ function extractDealFromListItem($item, portal, $) {
                     };
                     flightData.flights.push(flight);
                     flightIds.push(flightId);
-                    // Add airline if not already present
-                    if (!flightData.airlines.find((a) => a.id === airlineId)) {
-                        flightData.airlines.push({
-                            id: airlineId,
-                            name: airlineName,
-                            code: airlineCode,
-                            extractedAt,
-                        });
-                    }
                 }
             });
             // Extract booking options
-            modal.find(".booking-option").each((i, option) => {
-                const agency = $(option).find(".agency-name").text().trim();
-                const optionPrice = $(option).find(".price").text().trim();
+            console.info(`🔍 Looking for booking options in modal...`);
+            const bookingOptionsFound = modal.find("._similar > div");
+            console.info(`🔍 Found ${bookingOptionsFound.length} booking options`);
+            if (bookingOptionsFound.length === 0) {
+                console.warn(`⚠️ No booking options found for deal with airline: ${airline}`);
+            }
+            bookingOptionsFound.each((i, option) => {
+                const agency = $(option).find("p").eq(0).text().trim();
+                const optionPriceRaw = $(option).find("p").eq(1).clone().children("a").remove().end().text().trim();
+                const optionPrice = optionPriceRaw.replace(/[^\d.,]/g, "").replace(",", ".");
                 const link = $(option).find("a").attr("href") || "";
-                if (agency && optionPrice) {
+                console.info(`🔍 Booking option ${i + 1}: agency="${agency}", price="${optionPrice}", link="${link}"`);
+                if (agency && optionPrice && link) {
                     bookingOptions.push({
                         agency,
                         price: optionPrice,
                         link,
                     });
                     // Track cheapest option
-                    const priceValue = parseFloat(optionPrice.replace(/[^\d.,]/g, "").replace(",", "."));
+                    const priceValue = parseFloat(optionPrice);
+                    console.info(`🔍 Price parsing: "${optionPriceRaw}" -> ${priceValue}`);
                     if (!cheapest ||
-                        priceValue <
-                            parseFloat(cheapest.price.replace(/[^\d.,]/g, "").replace(",", "."))) {
+                        priceValue < parseFloat(cheapest.price)) {
+                        console.info(`🔍 New cheapest found: ${agency} at ${priceValue}`);
                         cheapest = { agency, price: optionPrice, link };
                     }
+                    else {
+                        console.info(`🔍 Not cheapest: ${agency} at ${priceValue} (current cheapest: ${cheapest.agency} at ${parseFloat(cheapest.price)})`);
+                    }
+                }
+                else {
+                    console.warn(`⚠️ Skipping booking option ${i + 1}: missing agency, price, or link`);
                 }
             });
+            console.info(`🔍 Final booking options: ${bookingOptions.length} valid options, cheapest: ${cheapest?.agency || 'none'}`);
         }
         // Create deal object
-        const dealId = (0, entities_1.generateId)("deal", `${airline}-${tripDepartureAirport}-${tripArrivalAirport}-${departureDate}`);
+        const dealId = (0, entities_1.generateId)("deal", `${airline}-${departureDate}`);
         const deal = {
             id: dealId,
             portal,
-            dealName: dealName,
             flightIds,
             agency: cheapest?.agency ?? "",
-            price,
+            price: cheapest?.price ?? "",
             link: cheapest?.link ?? "",
-            tripSummary: {
-                departure: formattedTripDeparture,
-                arrival: formattedTripArrival,
-                stops: stops,
-            },
             currency,
             extractedAt,
         };
+        console.info(`🔍 Created deal: agency="${deal.agency}", link="${deal.link}", price="${deal.price}"`);
         flightData.deals.push(deal);
         return flightData;
     }
