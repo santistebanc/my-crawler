@@ -1,10 +1,9 @@
-import { Portal } from "./types";
 import { FlightData } from "./entities";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import {
-  RequestParams,
-  ExtractedData,
-} from "./fetchPageAndExtractData";
+  RequestParams as SkyRequestParams,
+  SkyExtractedData,
+} from "./fetchSkyPageAndExtractData";
 import { buildPortalUrl, extractSessionCookie } from "./helpers";
 import { extractFlightDataFromResponse } from "./extractFlightDataFromResponse";
 import { mergeFlightData } from "./helpers";
@@ -19,16 +18,18 @@ interface RequestInitWithAgent extends RequestInit {
   agent?: any;
 }
 
-export async function pollForFlightData(
-  portal: Portal,
-  pageData: ExtractedData,
-  requestParams: RequestParams
+/**
+ * Handles Sky portal which uses polling
+ */
+export async function pollForSkyFlightData(
+  pageData: SkyExtractedData,
+  requestParams: SkyRequestParams
 ): Promise<FlightData> {
-  const baseUrl = `https://www.flightsfinder.com/portal/${portal}/poll`;
-  console.info(`🚀 Starting polling for ${portal} portal at ${baseUrl}`);
+  const baseUrl = `https://www.flightsfinder.com/portal/sky/poll`;
+  console.info(`🚀 Starting polling for Sky portal at ${baseUrl}`);
 
   // Construct the referer URL using helper
-  const refererUrl = buildPortalUrl(portal, requestParams);
+  const refererUrl = buildPortalUrl('sky', requestParams);
 
   let pollCount = 0;
   let failedPolls = 0;
@@ -154,7 +155,7 @@ export async function pollForFlightData(
           const dealsBefore = flightData.deals.length;
           const flightsBefore = flightData.flights.length;
           
-          const extractedData = extractFlightDataFromResponse(htmlContent, portal);
+          const extractedData = extractFlightDataFromResponse(htmlContent, 'sky');
           mergeFlightData(flightData, extractedData);
           
           // Calculate new entities added after merging
@@ -199,29 +200,30 @@ export async function pollForFlightData(
         // If it's a network error, wait a bit longer before retrying
         if (
           errorMessage.includes("fetch") ||
-          errorMessage.includes("network")
+          errorMessage.includes("network") ||
+          errorMessage.includes("timeout")
         ) {
-          console.info(`🌐 Network error detected, waiting 1000ms before retry`);
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, pollInterval * 2));
         }
 
         retryCount++;
-        failedPolls++;
-
-        if (failedPolls > 10) {
-          console.error(`❌ Too many failed polls (${failedPolls}), stopping polling`);
-          return flightData;
-        }
       }
     }
 
     if (!pollSuccess) {
+      failedPolls++;
       console.warn(`⚠️ Poll ${pollCount} failed after ${maxRetries} retries`);
+      
+      if (failedPolls >= 3) {
+        console.error(`❌ Too many failed polls (${failedPolls}), stopping`);
+        break;
+      }
     }
+
+    // Wait before next poll
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 
   console.info(`🏁 Polling completed: ${pollCount} attempts, ${failedPolls} failed`);
-  console.info(`📊 Final results: ${flightData.deals.length} deals, ${flightData.flights.length} flights`);
-  
   return flightData;
-}
+} 

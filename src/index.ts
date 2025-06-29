@@ -149,24 +149,23 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
     );
   }
 
-  // Kiwi portal fetching is temporarily disabled
-  // if (portalsToScrape.kiwi) {
-  //   portalPromises.push(
-  //     fetchFlightData('kiwi', requestParams)
-  //       .then(fetchedFlightData => {
-  //         // Merge the fetched flight data into the main flightData object
-  //         mergeFlightData(flightData, fetchedFlightData);
-  //         fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.deals.length} deals, ${fetchedFlightData.flights.length} flights`);
-  //       })
-  //       .catch(error => {
-  //         const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-  //         errors.push(errorMsg);
-  //         fastify.log.error(`❌ ${errorMsg}`);
-  //         // Log the full error for debugging
-  //         fastify.log.error(`❌ Full Kiwi portal error:`, error);
-  //       })
-  //   );
-  // }
+  if (portalsToScrape.kiwi) {
+    portalPromises.push(
+      fetchFlightData('kiwi', requestParams)
+        .then(fetchedFlightData => {
+          // Merge the fetched flight data into the main flightData object
+          mergeFlightData(flightData, fetchedFlightData);
+          fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.deals.length} deals, ${fetchedFlightData.flights.length} flights`);
+        })
+        .catch(error => {
+          const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          errors.push(errorMsg);
+          fastify.log.error(`❌ ${errorMsg}`);
+          // Log the full error for debugging
+          fastify.log.error(`❌ Full Kiwi portal error:`, error);
+        })
+    );
+  }
 
   // Wait for all portal scraping to complete
   await Promise.allSettled(portalPromises);

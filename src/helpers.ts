@@ -1,4 +1,4 @@
-import { RequestParams } from "./fetchPageAndExtractData";
+import { RequestParams } from "./fetchSkyPageAndExtractData";
 import { parse, format, isValid, addDays } from "date-fns";
 import { FlightData } from "./entities";
 import { DateTime } from "luxon";
@@ -8,6 +8,19 @@ import airlineCodesRaw from "./airlines.json";
 // Use the .data property for lookups
 const airportsData = airportsDataRaw.data;
 const airlineCodes = airlineCodesRaw.data;
+
+/**
+ * Maps cabin class to Kiwi portal format
+ */
+export function mapCabinClassForKiwi(cabinclass: 'Economy' | 'PremiumEconomy' | 'First' | 'Business' | undefined): string {
+  switch (cabinclass) {
+    case 'Economy': return 'M';
+    case 'PremiumEconomy': return 'W';
+    case 'First': return 'F';
+    case 'Business': return 'C';
+    default: return 'M';
+  }
+}
 
 /**
  * Builds URL search parameters from request parameters for flightsfinder.com portal URLs
@@ -29,13 +42,53 @@ export function buildPortalSearchParams(requestParams: RequestParams): URLSearch
 }
 
 /**
+ * Builds URL search parameters specifically for Kiwi portal
+ * @param requestParams - The request parameters containing flight search criteria
+ * @returns URLSearchParams object ready to be used in URL construction
+ */
+export function buildKiwiPortalSearchParams(requestParams: RequestParams): URLSearchParams {
+  // Convert date format from YYYY-MM-DD to dd/MM/yyyy for Kiwi
+  const formatDateForKiwi = (dateStr: string): string => {
+    if (!dateStr) return "";
+    try {
+      const date = parse(dateStr, "yyyy-MM-dd", new Date());
+      if (isValid(date)) {
+        return format(date, "dd/MM/yyyy");
+      }
+    } catch (error) {
+      console.warn(`⚠️ Could not parse date for Kiwi: ${dateStr}`);
+    }
+    return dateStr;
+  };
+
+  return new URLSearchParams({
+    currency: requestParams.currency,
+    cabinclass: mapCabinClassForKiwi(requestParams.cabinclass),
+    originplace: requestParams.originplace || "",
+    destinationplace: requestParams.destinationplace || "",
+    outbounddate: formatDateForKiwi(requestParams.outbounddate || ""),
+    inbounddate: formatDateForKiwi(requestParams.inbounddate || ""),
+    adults: requestParams.adults.toString(),
+    children: requestParams.children.toString(),
+    infants: requestParams.infants.toString(),
+  });
+}
+
+/**
  * Builds a complete portal URL with search parameters
  * @param portal - The portal name (e.g., 'sky', 'kiwi')
  * @param requestParams - The request parameters containing flight search criteria
  * @returns Complete URL string for the portal
  */
 export function buildPortalUrl(portal: string, requestParams: RequestParams): string {
-  const searchParams = buildPortalSearchParams(requestParams);
+  let searchParams: URLSearchParams;
+  
+  if (portal === 'kiwi') {
+    searchParams = buildKiwiPortalSearchParams(requestParams);
+  } else {
+    searchParams = buildPortalSearchParams(requestParams);
+  }
+  
   return `https://www.flightsfinder.com/portal/${portal}?${searchParams.toString()}`;
 }
 
@@ -152,8 +205,21 @@ export function createTimezonedDatetime(
 export function mergeFlightData(target: FlightData, source: FlightData): void {
   // Merge deals
   source.deals.forEach((deal) => {
-    if (!target.deals.find((d) => d.id === deal.id)) {
+    const existingDealIndex = target.deals.findIndex((d) => d.id === deal.id);
+    if (existingDealIndex === -1) {
+      // No existing deal with this ID, add it
       target.deals.push(deal);
+    } else {
+      // Deal with same ID exists, compare prices and keep the lowest
+      const existingDeal = target.deals[existingDealIndex];
+      const existingPrice = parseFloat(existingDeal.price) || 0;
+      const newPrice = parseFloat(deal.price) || 0;
+      
+      if (newPrice < existingPrice) {
+        // Replace with the cheaper deal
+        target.deals[existingDealIndex] = deal;
+        console.info(`💰 Replaced deal ${deal.id} with cheaper option: ${existingPrice} → ${newPrice}`);
+      }
     }
   });
 

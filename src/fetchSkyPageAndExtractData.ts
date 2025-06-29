@@ -19,7 +19,7 @@ export interface RequestParams {
   destinationplace?: string;
   outbounddate?: string;
   inbounddate?: string;
-  cabinclass?: string;
+  cabinclass?: 'Economy' | 'PremiumEconomy' | 'First' | 'Business';
 }
 
 interface ScriptExtractedData {
@@ -30,14 +30,14 @@ interface ScriptExtractedData {
   noc: string;
 }
 
-export interface ExtractedData extends ScriptExtractedData {
+export interface SkyExtractedData extends ScriptExtractedData {
   cookie: string;
 }
 
-export async function fetchPageAndExtractData(
+export async function fetchSkyPageAndExtractData(
   portal: Portal,
   requestParams: RequestParams
-): Promise<ExtractedData | null> {
+): Promise<SkyExtractedData | null> {
   // Construct the page URL using helper
   const pageUrl = buildPortalUrl(portal, requestParams);
   console.info(`🌐 Fetching initial page for ${portal} portal: ${pageUrl}`);
@@ -90,7 +90,7 @@ export async function fetchPageAndExtractData(
     console.info(`   - deeplink: ${extractedData.deeplink ? '✓' : '✗'}`);
     console.info(`   - noc: ${extractedData.noc ? '✓' : '✗'}`);
 
-    // Always return an ExtractedData object with a cookie property
+    // Always return an SkyExtractedData object with a cookie property
     const result = {
       _token: extractedData._token,
       session: extractedData.session,
