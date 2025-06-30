@@ -4,7 +4,6 @@ import {
   extractAirportCode,
   generateId,
   createBundleIdFromFlightIds,
-  createDatetimeForId,
   createBookingOptionId,
 } from "./entities";
 import * as cheerio from "cheerio";
@@ -15,6 +14,7 @@ import {
   addDaysToDateString,
   mergeFlightData,
 } from "./helpers";
+import { createDatetimeForId } from "./dateUtils";
 
 // Use the .data property for lookups
 const airportsData = airportsDataRaw.data;

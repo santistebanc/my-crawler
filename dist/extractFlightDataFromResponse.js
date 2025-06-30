@@ -41,6 +41,7 @@ const entities_1 = require("./entities");
 const cheerio = __importStar(require("cheerio"));
 const airports_json_1 = __importDefault(require("./airports.json"));
 const helpers_1 = require("./helpers");
+const dateUtils_1 = require("./dateUtils");
 // Use the .data property for lookups
 const airportsData = airports_json_1.default.data;
 /**
@@ -172,7 +173,7 @@ function extractBundleFromListItem($item, portal, $) {
                     const formattedFlightDeparture = (0, helpers_1.createTimezonedDatetime)(flightDate, flightDepartureTime, depTimezone);
                     const formattedFlightArrival = (0, helpers_1.createTimezonedDatetime)(flightArrivalDate, cleanArrivalTime, arrTimezone);
                     // Create departure datetime for ID (without timezone)
-                    const departureDatetimeForId = (0, entities_1.createDatetimeForId)(flightDate, flightDepartureTime);
+                    const departureDatetimeForId = (0, dateUtils_1.createDatetimeForId)(flightDate, flightDepartureTime);
                     // Create flight object
                     const flightId = (0, entities_1.generateId)("flight", `${flightNumber}-${depAirportCode}-${arrAirportCode}-${departureDatetimeForId}`);
                     const flight = {

@@ -1,4 +1,3 @@
-import { Portal } from "./types";
 import { buildPortalUrl, extractSessionCookie } from "./helpers";
 
 export interface RequestParams {
@@ -14,102 +13,77 @@ export interface RequestParams {
 }
 
 export interface KiwiExtractedData {
-  _token: string;
   cookie: string;
+  _token: string;
 }
 
+/**
+ * Fetches the initial page for Kiwi portal and extracts session data
+ */
 export async function fetchKiwiPageAndExtractData(
-  portal: Portal,
   requestParams: RequestParams
 ): Promise<KiwiExtractedData | null> {
-  // Construct the page URL using helper
-  const pageUrl = buildPortalUrl(portal, requestParams);
-  console.info(`🌐 Fetching initial page for ${portal} portal: ${pageUrl}`);
+  const pageUrl = buildPortalUrl('kiwi', requestParams);
+  console.info(`🌐 Fetching initial page for Kiwi portal: ${pageUrl}`);
 
   try {
-    console.info(`📤 Sending GET request to ${pageUrl}`);
     const response = await fetch(pageUrl, {
       method: "GET",
       headers: {
-        "User-Agent":
+        accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-GB,en;q=0.9",
+        "cache-control": "no-cache",
+        pragma: "no-cache",
+        "sec-ch-ua":
+          '"Brave";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "sec-gpc": "1",
+        "upgrade-insecure-requests": "1",
+        "user-agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "en-GB,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        Connection: "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
       },
     });
 
-    console.info(`📥 Page response: status=${response.status}, content-type=${response.headers.get('content-type')}`);
-
     if (!response.ok) {
-      console.error(`❌ HTTP error! status: ${response.status}`);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const html = await response.text();
-    console.info(`📄 Page HTML length: ${html.length} characters`);
+    const htmlContent = await response.text();
 
     // Extract session cookie
     const setCookieHeader = response.headers.get("set-cookie");
-    const sessionCookie = extractSessionCookie(setCookieHeader);
-    console.info(`🍪 Session cookie extracted: ${sessionCookie ? sessionCookie.length : 0} characters`);
+    const cookie = extractSessionCookie(setCookieHeader);
 
-    // Extract _token from script tag (similar to Sky's approach)
-    console.info(`🔍 Extracting _token from script tags...`);
-    const extractedData = extractDataFromScript(html);
-    
-    if (!extractedData) {
-      console.error(`❌ Failed to extract _token from script tags`);
+    if (!cookie) {
+      console.error("❌ No session cookie found in response");
       return null;
     }
 
-    console.info(`✅ Token extraction successful: ${extractedData._token ? '✓' : '✗'}`);
-
-    const result = {
-      _token: extractedData._token,
-      cookie: sessionCookie || "",
-    };
-
-    console.info(`🎯 Initial page fetch completed successfully for ${portal} portal`);
-    return result;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`❌ Error fetching initial page for ${portal} portal: ${errorMessage}`);
-    return null;
-  }
-}
-
-function extractDataFromScript(html: string): { _token: string } | null {
-  try {
-    // Look for script tags that contain the data object
-    const scriptRegex =
-      /<script[^>]*>[\s\S]*?data:\s*{[\s\S]*?}[\s\S]*?<\/script>/gi;
-    let scriptMatch;
-
-    while ((scriptMatch = scriptRegex.exec(html)) !== null) {
-      const scriptContent = scriptMatch[0];
-
-      // Look for the data object pattern
-      const dataMatch = scriptContent.match(/data:\s*{([\s\S]*?)}/);
-      if (dataMatch) {
-        const dataContent = dataMatch[1];
-
-        // Extract _token field
-        const tokenMatch = dataContent.match(/'_token':\s*'([^']+)'/);
-        
-        if (tokenMatch) {
-          return {
-            _token: tokenMatch[1],
-          };
-        }
-      }
+    // Extract CSRF token - Kiwi uses pattern 3 (script data object)
+    const tokenMatch = htmlContent.match(/data:\s*{[^}]*'_token':\s*'([^']+)'/);
+    if (!tokenMatch) {
+      console.error("❌ No CSRF token found in response");
+      return null;
     }
+    
+    const _token = tokenMatch[1];
 
-    return null;
+    console.info(`🎯 Initial page fetch completed successfully for Kiwi portal`);
+
+    return {
+      cookie,
+      _token,
+    };
   } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    console.error(`❌ Error fetching initial page for Kiwi portal: ${errorMessage}`);
     return null;
   }
 } 

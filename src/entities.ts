@@ -1,8 +1,6 @@
 // Entity interfaces for flight data
 
-import { DateTime } from "luxon";
-import { parse, isValid } from "date-fns";
-import { parseDateString } from "./helpers";
+import { parseDateString, createDatetimeForId } from "./dateUtils";
 
 export interface Flight {
   uniqueId: string;
@@ -58,32 +56,6 @@ export function createBundleIdFromFlightIds(flightIds: string[]): string {
   // Convert to positive hex string and take first 8 characters
   const hashString = Math.abs(hash).toString(16).padStart(8, '0').substring(0, 8);
   return `bundle_${hashString}`;
-}
-
-/**
- * Creates a datetime string without timezone for ID generation
- */
-export function createDatetimeForId(dateStr: string, timeStr: string): string {
-  try {
-    const parsedDate = parseDateString(dateStr) || new Date();
-    // Parse the time string using date-fns
-    let timeDate: Date;
-    if (timeStr.match(/^\d{1,2}:\d{2}$/)) {
-      timeDate = parse(timeStr, "HH:mm", new Date());
-    } else {
-      timeDate = parse(timeStr, "h:mm a", new Date());
-    }
-    if (!isValid(timeDate)) {
-      return "";
-    }
-    // Combine the date and time
-    const combinedDate = new Date(parsedDate);
-    combinedDate.setHours(timeDate.getHours(), timeDate.getMinutes(), 0, 0);
-    // Format as YYYYMMDDHHMM (without timezone)
-    return DateTime.fromJSDate(combinedDate).toFormat("yyyyMMddHHmm");
-  } catch (error) {
-    return "";
-  }
 }
 
 export function extractAirportCode(airportString: string): string {

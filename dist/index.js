@@ -3,15 +3,29 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const flightApiClient_1 = require("./flightApiClient");
 const fastify_1 = __importDefault(require("fastify"));
-const luxon_1 = require("luxon");
+const helpers_1 = require("./helpers");
+const flightApiClient_1 = require("./flightApiClient");
+const flightApiClient_2 = require("./flightApiClient");
+const logger_1 = require("./logger");
+const dateUtils_1 = require("./dateUtils");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const helpers_1 = require("./helpers");
 const fastify = (0, fastify_1.default)({
-    logger: true,
+    logger: {
+        level: 'info',
+        transport: {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                translateTime: 'HH:MM:ss',
+                ignore: 'pid,hostname'
+            }
+        }
+    }
 });
+// Initialize logger with Fastify logger
+logger_1.logger.setLogLevel(logger_1.LogLevel.INFO);
 // Entry Point
 start();
 // Health check endpoint
@@ -23,6 +37,8 @@ createEndpointPair('/getBundles', handleFlightScraping, 'bundles scraping');
 // Function to handle flight scraping logic
 async function handleFlightScraping(request) {
     const startTime = Date.now();
+    const requestId = generateRequestId();
+    logger_1.logger.setRequestId(requestId);
     const { portals = { kiwi: true, sky: true }, currency = 'EUR', type = 'oneway', cabinclass = 'Economy', originplace, destinationplace, outbounddate, inbounddate, adults = 1, children = 0, infants = 0 } = request;
     // Convert string parameters to numbers for validation (GET requests send strings)
     const adultsNum = typeof adults === 'string' ? parseInt(adults, 10) : adults;
@@ -58,19 +74,14 @@ async function handleFlightScraping(request) {
     }
     // Date validation
     if (outbounddate) {
-        const outboundDate = luxon_1.DateTime.fromISO(outbounddate);
-        if (!outboundDate.isValid) {
-            throw new Error(`Invalid outbounddate: ${outbounddate}`);
-        }
-        if (!validateNotPastDateISO(outbounddate)) {
-            fastify.log.warn(`⚠️ Outbound date is in the past: ${outbounddate}, but continuing with scraping`);
-            // Don't throw error, just log warning and continue
+        if (!(0, dateUtils_1.validateNotPastDateISO)(outbounddate)) {
+            logger_1.logger.warn(logger_1.LogCategory.REQUEST, `Outbound date is in the past`, { outbounddate });
         }
     }
     if (inbounddate && outbounddate) {
-        const outboundDate = luxon_1.DateTime.fromISO(outbounddate);
-        const inboundDate = luxon_1.DateTime.fromISO(inbounddate);
-        if (outboundDate.isValid && inboundDate.isValid && inboundDate <= outboundDate) {
+        const outboundDate = new Date(outbounddate);
+        const inboundDate = new Date(inbounddate);
+        if (!isNaN(outboundDate.getTime()) && !isNaN(inboundDate.getTime()) && inboundDate <= outboundDate) {
             throw new Error(`Inbound date must be after outbound date: ${inbounddate} <= ${outbounddate}`);
         }
     }
@@ -82,10 +93,20 @@ async function handleFlightScraping(request) {
     if (!portalsToScrape.kiwi && !portalsToScrape.sky) {
         throw new Error('At least one portal (kiwi or sky) must be true');
     }
-    // Log request details
-    fastify.log.info(`Starting flight scrape for portals: kiwi, sky`);
-    fastify.log.info(`Parameters: originplace=${originplace}, destinationplace=${destinationplace}, outbounddate=${outbounddate}`);
-    fastify.log.info(`Search details: ${adultsNum} adults, ${childrenNum} children, ${infantsNum} infants, ${cabinclass} class, ${currency} currency`);
+    // Log request start
+    logger_1.logger.startRequest('Flight Scraping', {
+        originplace,
+        destinationplace,
+        outbounddate,
+        inbounddate,
+        adults: adultsNum,
+        children: childrenNum,
+        infants: infantsNum,
+        cabinclass,
+        currency,
+        type,
+        portals: Object.keys(portalsToScrape).filter(p => portalsToScrape[p])
+    });
     // Initialize combined flight data
     const flightData = {
         bundles: [],
@@ -107,33 +128,55 @@ async function handleFlightScraping(request) {
     // Scrape each portal
     const portalPromises = [];
     if (portalsToScrape.sky) {
-        portalPromises.push((0, flightApiClient_1.fetchFlightData)('sky', requestParams)
+        portalPromises.push((0, flightApiClient_1.fetchSkyFlightData)(requestParams)
             .then(fetchedFlightData => {
-            // Merge the fetched flight data into the main flightData object
+            const beforeStats = {
+                bundles: flightData.bundles.length,
+                flights: flightData.flights.length,
+                bookingOptions: flightData.bookingOptions.length
+            };
             (0, helpers_1.mergeFlightData)(flightData, fetchedFlightData);
-            fastify.log.info(`✅ Sky portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
+            logger_1.logger.portalSuccess('sky', {
+                bundles: fetchedFlightData.bundles.length,
+                flights: fetchedFlightData.flights.length,
+                bookingOptions: fetchedFlightData.bookingOptions.length
+            });
+            logger_1.logger.dataMerge('Sky portal data', beforeStats, {
+                bundles: flightData.bundles.length,
+                flights: flightData.flights.length,
+                bookingOptions: flightData.bookingOptions.length
+            });
         })
             .catch(error => {
             const errorMsg = `Sky portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
             errors.push(errorMsg);
-            fastify.log.error(`❌ ${errorMsg}`);
-            // Log the full error for debugging
-            fastify.log.error(`❌ Full Sky portal error:`, error);
+            logger_1.logger.portalError('sky', error);
         }));
     }
     if (portalsToScrape.kiwi) {
-        portalPromises.push((0, flightApiClient_1.fetchFlightData)('kiwi', requestParams)
+        portalPromises.push((0, flightApiClient_2.fetchKiwiFlightData)(requestParams)
             .then(fetchedFlightData => {
-            // Merge the fetched flight data into the main flightData object
+            const beforeStats = {
+                bundles: flightData.bundles.length,
+                flights: flightData.flights.length,
+                bookingOptions: flightData.bookingOptions.length
+            };
             (0, helpers_1.mergeFlightData)(flightData, fetchedFlightData);
-            fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
+            logger_1.logger.portalSuccess('kiwi', {
+                bundles: fetchedFlightData.bundles.length,
+                flights: fetchedFlightData.flights.length,
+                bookingOptions: fetchedFlightData.bookingOptions.length
+            });
+            logger_1.logger.dataMerge('Kiwi portal data', beforeStats, {
+                bundles: flightData.bundles.length,
+                flights: flightData.flights.length,
+                bookingOptions: flightData.bookingOptions.length
+            });
         })
             .catch(error => {
             const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
             errors.push(errorMsg);
-            fastify.log.error(`❌ ${errorMsg}`);
-            // Log the full error for debugging
-            fastify.log.error(`❌ Full Kiwi portal error:`, error);
+            logger_1.logger.portalError('kiwi', error);
         }));
     }
     // Wait for all portal scraping to complete
@@ -143,19 +186,7 @@ async function handleFlightScraping(request) {
     // Determine success status
     const success = flightData.bundles.length > 0 && errors.length === 0;
     const partialSuccess = flightData.bundles.length > 0 && errors.length > 0;
-    // Log comprehensive results summary
     const duration = Date.now() - startTime;
-    fastify.log.info(`📊 Scraping completed in ${duration}ms`);
-    fastify.log.info(`📈 Final results: ${flightData.bundles.length} bundles, ${flightData.flights.length} flights, ${flightData.bookingOptions.length} booking options`);
-    if (success) {
-        fastify.log.info(`✅ Scraping successful - all portals completed without errors`);
-    }
-    else if (partialSuccess) {
-        fastify.log.warn(`⚠️ Partial success: ${flightData.bundles.length} bundles found, but ${errors.length} errors occurred`);
-    }
-    else {
-        fastify.log.error(`❌ Scraping failed: No bundles found and ${errors.length} errors occurred`);
-    }
     const finalResponse = {
         success: success || partialSuccess,
         data: {
@@ -165,6 +196,8 @@ async function handleFlightScraping(request) {
         },
         error: errors.length > 0 ? errors.join('; ') : undefined
     };
+    // Log response completion
+    logger_1.logger.endRequest('Flight Scraping', finalResponse, duration);
     // Log response to JSON file
     try {
         const logsDir = path_1.default.join(process.cwd(), 'logs');
@@ -175,10 +208,10 @@ async function handleFlightScraping(request) {
         const filename = `response_${timestamp}.json`;
         const filepath = path_1.default.join(logsDir, filename);
         fs_1.default.writeFileSync(filepath, JSON.stringify(finalResponse, null, 2));
-        fastify.log.info(`💾 Response logged to: ${filepath}`);
+        logger_1.logger.debug(logger_1.LogCategory.SYSTEM, `Response logged to file`, { filepath });
     }
     catch (logError) {
-        fastify.log.error(`❌ Failed to log response to file: ${logError}`);
+        logger_1.logger.error(logger_1.LogCategory.SYSTEM, `Failed to log response to file`, { error: logError });
     }
     return finalResponse;
 }
@@ -187,15 +220,6 @@ function isValidDate(date) {
     if (!date)
         return false;
     return /^\d{4}-\d{2}-\d{2}$/.test(date);
-}
-// Helper for validating that a date is not in the past
-function validateNotPastDateISO(dateStr) {
-    // Expects format 'YYYY-MM-DD'
-    const date = luxon_1.DateTime.fromISO(dateStr);
-    if (!date.isValid)
-        return false;
-    const today = luxon_1.DateTime.now().startOf('day');
-    return date >= today;
 }
 // Helper for cabinclass validation
 const validCabinClasses = ['Economy', 'PremiumEconomy', 'First', 'Business'];
@@ -213,6 +237,9 @@ function createLinkedEntitiesResponse(flightData) {
         }
     };
 }
+function generateRequestId() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
 // Generic helper to create both GET and POST versions of an endpoint
 function createEndpointPair(path, handler, errorContext) {
     // POST endpoint
@@ -227,7 +254,7 @@ function createEndpointPair(path, handler, errorContext) {
             }
         }
         catch (error) {
-            fastify.log.error(`Error in ${errorContext} endpoint:`, error);
+            logger_1.logger.error(logger_1.LogCategory.ERROR, `Error in ${errorContext} endpoint`, { error });
             return reply.status(400).send({
                 success: false,
                 error: error instanceof Error ? error.message : 'Internal server error',
@@ -246,7 +273,7 @@ function createEndpointPair(path, handler, errorContext) {
             }
         }
         catch (error) {
-            fastify.log.error(`Error in ${errorContext} endpoint:`, error);
+            logger_1.logger.error(logger_1.LogCategory.ERROR, `Error in ${errorContext} endpoint`, { error });
             return reply.status(400).send({
                 success: false,
                 error: error instanceof Error ? error.message : 'Internal server error',
@@ -258,10 +285,10 @@ function createEndpointPair(path, handler, errorContext) {
 async function start() {
     try {
         await fastify.listen({ port: 3001, host: '0.0.0.0' });
-        console.log('🚀 Server is running on http://localhost:3001');
+        logger_1.logger.info(logger_1.LogCategory.SYSTEM, 'Server started successfully', { port: 3001, host: '0.0.0.0' });
     }
     catch (err) {
-        fastify.log.error(err);
+        logger_1.logger.error(logger_1.LogCategory.SYSTEM, 'Failed to start server', { error: err });
         process.exit(1);
     }
 }

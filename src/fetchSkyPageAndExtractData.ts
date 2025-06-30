@@ -1,4 +1,3 @@
-import { Portal } from "./types";
 import { buildPortalUrl, extractSessionCookie } from "./helpers";
 
 export interface RequestParams {
@@ -13,127 +12,111 @@ export interface RequestParams {
   cabinclass?: 'Economy' | 'PremiumEconomy' | 'First' | 'Business';
 }
 
-interface ScriptExtractedData {
+export interface SkyExtractedData {
+  cookie: string;
   _token: string;
   session: string;
   suuid: string;
   deeplink: string;
-  noc: string;
 }
 
-export interface SkyExtractedData extends ScriptExtractedData {
-  cookie: string;
-}
-
+/**
+ * Fetches the initial page for Sky portal and extracts session data
+ */
 export async function fetchSkyPageAndExtractData(
-  portal: Portal,
   requestParams: RequestParams
 ): Promise<SkyExtractedData | null> {
-  // Construct the page URL using helper
-  const pageUrl = buildPortalUrl(portal, requestParams);
-  console.info(`🌐 Fetching initial page for ${portal} portal: ${pageUrl}`);
+  const pageUrl = buildPortalUrl('sky', requestParams);
+  console.info(`🌐 Fetching initial page for Sky portal: ${pageUrl}`);
 
   try {
-    console.info(`📤 Sending GET request to ${pageUrl}`);
     const response = await fetch(pageUrl, {
       method: "GET",
       headers: {
-        "User-Agent":
+        accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-GB,en;q=0.9",
+        "cache-control": "no-cache",
+        pragma: "no-cache",
+        "sec-ch-ua":
+          '"Brave";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "none",
+        "sec-fetch-user": "?1",
+        "sec-gpc": "1",
+        "upgrade-insecure-requests": "1",
+        "user-agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "en-GB,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        Connection: "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
       },
     });
 
-    console.info(`📥 Page response: status=${response.status}, content-type=${response.headers.get('content-type')}`);
-
     if (!response.ok) {
-      console.error(`❌ HTTP error! status: ${response.status}`);
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const html = await response.text();
-    console.info(`📄 Page HTML length: ${html.length} characters`);
+    const htmlContent = await response.text();
 
     // Extract session cookie
     const setCookieHeader = response.headers.get("set-cookie");
-    const sessionCookie = extractSessionCookie(setCookieHeader);
-    console.info(`🍪 Session cookie extracted: ${sessionCookie ? sessionCookie.length : 0} characters`);
+    const cookie = extractSessionCookie(setCookieHeader);
 
-    // Extract data from script tag
-    console.info(`🔍 Extracting data from script tags...`);
-    const extractedData = extractDataFromScript(html);
-
-    if (!extractedData) {
-      console.error(`❌ Failed to extract data from script tags`);
+    if (!cookie) {
+      console.error("❌ No session cookie found in response");
       return null;
     }
 
-    console.info(`✅ Data extraction successful:`);
-    console.info(`   - _token: ${extractedData._token ? '✓' : '✗'}`);
-    console.info(`   - session: ${extractedData.session ? '✓' : '✗'}`);
-    console.info(`   - suuid: ${extractedData.suuid ? '✓' : '✗'}`);
-    console.info(`   - deeplink: ${extractedData.deeplink ? '✓' : '✗'}`);
-    console.info(`   - noc: ${extractedData.noc ? '✓' : '✗'}`);
-
-    // Always return an SkyExtractedData object with a cookie property
-    const result = {
-      _token: extractedData._token,
-      session: extractedData.session,
-      suuid: extractedData.suuid,
-      deeplink: extractedData.deeplink,
-      noc: extractedData.noc,
-      cookie: sessionCookie || "",
-    };
-
-    console.info(`🎯 Initial page fetch completed successfully for ${portal} portal`);
-    return result;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`❌ Error fetching initial page for ${portal} portal: ${errorMessage}`);
-    return null;
-  }
-}
-
-function extractDataFromScript(html: string): ScriptExtractedData | null {
-  try {
-    // Look for script tags that contain the data object
-    const scriptRegex =
-      /<script[^>]*>[\s\S]*?data:\s*{[\s\S]*?}[\s\S]*?<\/script>/gi;
-    let scriptMatch;
-
-    while ((scriptMatch = scriptRegex.exec(html)) !== null) {
-      const scriptContent = scriptMatch[0];
-
-      // Look for the data object pattern
-      const dataMatch = scriptContent.match(/data:\s*{([\s\S]*?)}/);
-      if (dataMatch) {
-        const dataContent = dataMatch[1];
-
-        // Extract individual fields
-        const tokenMatch = dataContent.match(/'_token':\s*'([^']+)'/);
-        const sessionMatch = dataContent.match(/'session':\s*'([^']+)'/);
-        const suuidMatch = dataContent.match(/'suuid':\s*'([^']+)'/);
-        const deeplinkMatch = dataContent.match(/'deeplink':\s*'([^']+)'/);
-
-        if (tokenMatch && sessionMatch && suuidMatch && deeplinkMatch) {
-          return {
-            _token: tokenMatch[1],
-            session: sessionMatch[1],
-            suuid: suuidMatch[1],
-            deeplink: deeplinkMatch[1],
-            noc: Date.now().toString(),
-          };
-        }
-      }
+    // Extract CSRF token - Sky uses pattern 3 (script data object)
+    const tokenMatch = htmlContent.match(/data:\s*{[^}]*'_token':\s*'([^']+)'/);
+    if (!tokenMatch) {
+      console.error("❌ No CSRF token found in response");
+      return null;
     }
+    
+    const _token = tokenMatch[1];
 
-    return null;
+    // Extract session ID - Sky uses pattern 2 (script data object)
+    const sessionMatch = htmlContent.match(/data:\s*{[^}]*'session':\s*'([^']+)'/);
+    if (!sessionMatch) {
+      console.error("❌ No session ID found in response");
+      return null;
+    }
+    
+    const session = sessionMatch[1];
+
+    // Extract SUUID - Sky uses pattern 2 (script data object)
+    const suuidMatch = htmlContent.match(/data:\s*{[^}]*'suuid':\s*'([^']+)'/);
+    if (!suuidMatch) {
+      console.error("❌ No SUUID found in response");
+      return null;
+    }
+    
+    const suuid = suuidMatch[1];
+
+    // Extract deeplink - Sky uses pattern 2 (script data object)
+    const deeplinkMatch = htmlContent.match(/data:\s*{[^}]*'deeplink':\s*'([^']+)'/);
+    if (!deeplinkMatch) {
+      console.error("❌ No deeplink found in response");
+      return null;
+    }
+    
+    const deeplink = deeplinkMatch[1];
+
+    console.info(`🎯 Initial page fetch completed successfully for Sky portal`);
+
+    return {
+      cookie,
+      _token,
+      session,
+      suuid,
+      deeplink,
+    };
   } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    console.error(`❌ Error fetching initial page for Sky portal: ${errorMessage}`);
     return null;
   }
 } 

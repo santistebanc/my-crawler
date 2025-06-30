@@ -1,15 +1,30 @@
-import { fetchFlightData } from './flightApiClient';
+import Fastify from 'fastify';
 import { ScrapingRequest, ScrapingResponse, LinkedFlightData, LinkedFlight } from './types';
 import { FlightData } from './entities';
-import Fastify from 'fastify';
-import { DateTime } from 'luxon';
+import { mergeFlightData } from './helpers';
+import { fetchSkyFlightData } from './flightApiClient';
+import { fetchKiwiFlightData } from './flightApiClient';
+import { logger, LogCategory, LogLevel } from './logger';
+import { validateNotPastDateISO } from './dateUtils';
 import fs from 'fs';
 import path from 'path';
-import { mergeFlightData } from "./helpers";
 
 const fastify = Fastify({
-  logger: true,
+  logger: {
+    level: 'info',
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss',
+        ignore: 'pid,hostname'
+      }
+    }
+  }
 });
+
+// Initialize logger with Fastify logger
+logger.setLogLevel(LogLevel.INFO);
 
 // Entry Point
 start();
@@ -25,6 +40,8 @@ createEndpointPair<ScrapingRequest>('/getBundles', handleFlightScraping, 'bundle
 // Function to handle flight scraping logic
 async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingResponse> {
   const startTime = Date.now();
+  const requestId = generateRequestId();
+  logger.setRequestId(requestId);
   
   const {
     portals = { kiwi: true, sky: true },
@@ -76,20 +93,15 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   
   // Date validation
   if (outbounddate) {
-    const outboundDate = DateTime.fromISO(outbounddate);
-    if (!outboundDate.isValid) {
-      throw new Error(`Invalid outbounddate: ${outbounddate}`);
-    }
     if (!validateNotPastDateISO(outbounddate)) {
-      fastify.log.warn(`⚠️ Outbound date is in the past: ${outbounddate}, but continuing with scraping`);
-      // Don't throw error, just log warning and continue
+      logger.warn(LogCategory.REQUEST, `Outbound date is in the past`, { outbounddate });
     }
   }
   
   if (inbounddate && outbounddate) {
-    const outboundDate = DateTime.fromISO(outbounddate);
-    const inboundDate = DateTime.fromISO(inbounddate);
-    if (outboundDate.isValid && inboundDate.isValid && inboundDate <= outboundDate) {
+    const outboundDate = new Date(outbounddate);
+    const inboundDate = new Date(inbounddate);
+    if (!isNaN(outboundDate.getTime()) && !isNaN(inboundDate.getTime()) && inboundDate <= outboundDate) {
       throw new Error(`Inbound date must be after outbound date: ${inbounddate} <= ${outbounddate}`);
     }
   }
@@ -103,10 +115,20 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
     throw new Error('At least one portal (kiwi or sky) must be true');
   }
 
-  // Log request details
-  fastify.log.info(`Starting flight scrape for portals: kiwi, sky`);
-  fastify.log.info(`Parameters: originplace=${originplace}, destinationplace=${destinationplace}, outbounddate=${outbounddate}`);
-  fastify.log.info(`Search details: ${adultsNum} adults, ${childrenNum} children, ${infantsNum} infants, ${cabinclass} class, ${currency} currency`);
+  // Log request start
+  logger.startRequest('Flight Scraping', {
+    originplace,
+    destinationplace,
+    outbounddate,
+    inbounddate,
+    adults: adultsNum,
+    children: childrenNum,
+    infants: infantsNum,
+    cabinclass,
+    currency,
+    type,
+    portals: Object.keys(portalsToScrape).filter(p => portalsToScrape[p as keyof typeof portalsToScrape])
+  });
 
   // Initialize combined flight data
   const flightData: FlightData = {
@@ -134,36 +156,64 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
 
   if (portalsToScrape.sky) {
     portalPromises.push(
-      fetchFlightData('sky', requestParams)
+      fetchSkyFlightData(requestParams)
         .then(fetchedFlightData => {
-          // Merge the fetched flight data into the main flightData object
+          const beforeStats = {
+            bundles: flightData.bundles.length,
+            flights: flightData.flights.length,
+            bookingOptions: flightData.bookingOptions.length
+          };
+          
           mergeFlightData(flightData, fetchedFlightData);
-          fastify.log.info(`✅ Sky portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
+          
+          logger.portalSuccess('sky', {
+            bundles: fetchedFlightData.bundles.length,
+            flights: fetchedFlightData.flights.length,
+            bookingOptions: fetchedFlightData.bookingOptions.length
+          });
+          
+          logger.dataMerge('Sky portal data', beforeStats, {
+            bundles: flightData.bundles.length,
+            flights: flightData.flights.length,
+            bookingOptions: flightData.bookingOptions.length
+          });
         })
         .catch(error => {
           const errorMsg = `Sky portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           errors.push(errorMsg);
-          fastify.log.error(`❌ ${errorMsg}`);
-          // Log the full error for debugging
-          fastify.log.error(`❌ Full Sky portal error:`, error);
+          logger.portalError('sky', error);
         })
     );
   }
 
   if (portalsToScrape.kiwi) {
     portalPromises.push(
-      fetchFlightData('kiwi', requestParams)
+      fetchKiwiFlightData(requestParams)
         .then(fetchedFlightData => {
-          // Merge the fetched flight data into the main flightData object
+          const beforeStats = {
+            bundles: flightData.bundles.length,
+            flights: flightData.flights.length,
+            bookingOptions: flightData.bookingOptions.length
+          };
+          
           mergeFlightData(flightData, fetchedFlightData);
-          fastify.log.info(`✅ Kiwi portal: Retrieved ${fetchedFlightData.bundles.length} bundles, ${fetchedFlightData.flights.length} flights, ${fetchedFlightData.bookingOptions.length} booking options`);
+          
+          logger.portalSuccess('kiwi', {
+            bundles: fetchedFlightData.bundles.length,
+            flights: fetchedFlightData.flights.length,
+            bookingOptions: fetchedFlightData.bookingOptions.length
+          });
+          
+          logger.dataMerge('Kiwi portal data', beforeStats, {
+            bundles: flightData.bundles.length,
+            flights: flightData.flights.length,
+            bookingOptions: flightData.bookingOptions.length
+          });
         })
         .catch(error => {
           const errorMsg = `Kiwi portal error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           errors.push(errorMsg);
-          fastify.log.error(`❌ ${errorMsg}`);
-          // Log the full error for debugging
-          fastify.log.error(`❌ Full Kiwi portal error:`, error);
+          logger.portalError('kiwi', error);
         })
     );
   }
@@ -178,19 +228,7 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
   const success = flightData.bundles.length > 0 && errors.length === 0;
   const partialSuccess = flightData.bundles.length > 0 && errors.length > 0;
 
-  // Log comprehensive results summary
   const duration = Date.now() - startTime;
-  fastify.log.info(`📊 Scraping completed in ${duration}ms`);
-  fastify.log.info(`📈 Final results: ${flightData.bundles.length} bundles, ${flightData.flights.length} flights, ${flightData.bookingOptions.length} booking options`);
-  
-  if (success) {
-    fastify.log.info(`✅ Scraping successful - all portals completed without errors`);
-  } else if (partialSuccess) {
-    fastify.log.warn(`⚠️ Partial success: ${flightData.bundles.length} bundles found, but ${errors.length} errors occurred`);
-  } else {
-    fastify.log.error(`❌ Scraping failed: No bundles found and ${errors.length} errors occurred`);
-  }
-
   const finalResponse = {
     success: success || partialSuccess,
     data: {
@@ -200,6 +238,9 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
     },
     error: errors.length > 0 ? errors.join('; ') : undefined
   };
+
+  // Log response completion
+  logger.endRequest('Flight Scraping', finalResponse, duration);
 
   // Log response to JSON file
   try {
@@ -213,9 +254,9 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
     const filepath = path.join(logsDir, filename);
     
     fs.writeFileSync(filepath, JSON.stringify(finalResponse, null, 2));
-    fastify.log.info(`💾 Response logged to: ${filepath}`);
+    logger.debug(LogCategory.SYSTEM, `Response logged to file`, { filepath });
   } catch (logError) {
-    fastify.log.error(`❌ Failed to log response to file: ${logError}`);
+    logger.error(LogCategory.SYSTEM, `Failed to log response to file`, { error: logError });
   }
 
   return finalResponse;
@@ -225,15 +266,6 @@ async function handleFlightScraping(request: ScrapingRequest): Promise<ScrapingR
 function isValidDate(date: string | undefined) {
   if (!date) return false;
   return /^\d{4}-\d{2}-\d{2}$/.test(date);
-}
-
-// Helper for validating that a date is not in the past
-function validateNotPastDateISO(dateStr: string): boolean {
-  // Expects format 'YYYY-MM-DD'
-  const date = DateTime.fromISO(dateStr);
-  if (!date.isValid) return false;
-  const today = DateTime.now().startOf('day');
-  return date >= today;
 }
 
 // Helper for cabinclass validation
@@ -255,6 +287,10 @@ function createLinkedEntitiesResponse(flightData: FlightData): LinkedFlightData 
   };
 }
 
+function generateRequestId(): string {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
 // Generic helper to create both GET and POST versions of an endpoint
 function createEndpointPair<T>(
   path: string,
@@ -272,7 +308,7 @@ function createEndpointPair<T>(
         return reply.status(500).send(result);
       }
     } catch (error) {
-      fastify.log.error(`Error in ${errorContext} endpoint:`, error);
+      logger.error(LogCategory.ERROR, `Error in ${errorContext} endpoint`, { error });
       return reply.status(400).send({
         success: false,
         error: error instanceof Error ? error.message : 'Internal server error',
@@ -291,7 +327,7 @@ function createEndpointPair<T>(
         return reply.status(500).send(result);
       }
     } catch (error) {
-      fastify.log.error(`Error in ${errorContext} endpoint:`, error);
+      logger.error(LogCategory.ERROR, `Error in ${errorContext} endpoint`, { error });
       return reply.status(400).send({
         success: false,
         error: error instanceof Error ? error.message : 'Internal server error',
@@ -304,9 +340,9 @@ function createEndpointPair<T>(
 async function start() {
   try {
     await fastify.listen({ port: 3001, host: '0.0.0.0' });
-    console.log('🚀 Server is running on http://localhost:3001');
+    logger.info(LogCategory.SYSTEM, 'Server started successfully', { port: 3001, host: '0.0.0.0' });
   } catch (err) {
-    fastify.log.error(err);
+    logger.error(LogCategory.SYSTEM, 'Failed to start server', { error: err });
     process.exit(1);
   }
 } 

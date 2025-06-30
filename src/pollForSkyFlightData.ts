@@ -6,6 +6,7 @@ import {
 import { buildPortalUrl, extractSessionCookie } from "./helpers";
 import { extractFlightDataFromResponse } from "./extractFlightDataFromResponse";
 import { mergeFlightData } from "./helpers";
+import { logger, LogCategory } from "./logger";
 
 /**
  * Handles Sky portal which uses polling
@@ -15,20 +16,18 @@ export async function pollForSkyFlightData(
   requestParams: SkyRequestParams
 ): Promise<FlightData> {
   const baseUrl = `https://www.flightsfinder.com/portal/sky/poll`;
-  console.info(`🚀 Starting polling for Sky portal at ${baseUrl}`);
+  logger.info(LogCategory.SCRAPING, `🚀 Starting Sky polling`);
 
   // Construct the referer URL using helper
   const refererUrl = buildPortalUrl('sky', requestParams);
 
   let pollCount = 0;
   let failedPolls = 0;
-  const maxPolls = 10; // Prevent infinite polling
+  const maxPolls = 15; // Prevent infinite polling
   const maxRetries = 3; // Max retries per failed poll
   const pollInterval = 100; // 100ms as specified
   const maxPollingTime = 30000; // 30 seconds maximum polling time
   const startTime = Date.now();
-
-  console.info(`📋 Polling configuration: maxPolls=${maxPolls}, maxRetries=${maxRetries}, pollInterval=${pollInterval}ms, maxPollingTime=${maxPollingTime}ms`);
 
   // Initialize flight data structure
   const flightData: FlightData = {
@@ -39,19 +38,16 @@ export async function pollForSkyFlightData(
 
   let currentCookie = pageData.cookie; // Start with initial cookie
   let currentPageData = pageData; // Keep track of current page data
-
-  console.info(`🍪 Initial cookie: ${currentCookie.substring(0, 50)}...`);
+  let previousResultsCount = 0; // Track previous poll's result count
 
   while (pollCount < maxPolls) {
     // Check if we've exceeded the maximum polling time
     if (Date.now() - startTime > maxPollingTime) {
-      console.warn(`⏰ Polling timeout reached after ${Date.now() - startTime}ms`);
+      logger.warn(LogCategory.SCRAPING, `⏰ Polling timeout`);
       break;
     }
 
     pollCount++;
-    console.info(`🔄 Poll attempt ${pollCount}/${maxPolls} (${Date.now() - startTime}ms elapsed)`);
-
     let retryCount = 0;
     let pollSuccess = false;
 
@@ -92,15 +88,11 @@ export async function pollForSkyFlightData(
           currency: requestParams.currency,
         }).toString();
 
-        console.info(`📤 Sending poll request ${pollCount}.${retryCount + 1}`);
-
         const response = await fetch(baseUrl, {
           method: "POST",
           headers,
           body: formData,
         });
-
-        console.info(`📥 Poll response: status=${response.status}, headers=${response.headers.get('content-type')}`);
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -112,57 +104,55 @@ export async function pollForSkyFlightData(
         const responseParts = htmlData.split('|');
         
         if (responseParts.length < 7) {
-          console.warn(`⚠️ Invalid response format: expected at least 7 parts, got ${responseParts.length}`);
+          logger.warn(LogCategory.SCRAPING, `⚠️ Invalid response format`);
           retryCount++;
           continue;
         }
 
         const isLastResponse = responseParts[0] === 'Y';
-        const totalResultsExpected = parseInt(responseParts[1], 10) || 0;
         const htmlContent = responseParts[6];
-
-        console.info(`📊 Poll status: ${responseParts[0]} (${isLastResponse ? 'LAST' : 'MORE'}) data, expected total: ${totalResultsExpected}`);
-        console.info(`📄 HTML content length: ${htmlContent.length} characters`);
 
         // Extract updated session cookie from response
         const setCookieHeader = response.headers.get("set-cookie");
         const newCookie = extractSessionCookie(setCookieHeader);
         if (newCookie && newCookie !== currentCookie) {
-          console.info(`🍪 New cookie: ${newCookie.substring(0, 50)}...`);
           currentCookie = newCookie;
-        } else if (newCookie) {
-          console.info(`🍪 Cookie unchanged: ${currentCookie.length} characters`);
-        } else {
-          console.info(`🍪 No new cookie in response`);
         }
 
         // Check if we have flight data in the HTML content
         if (htmlContent.includes("list-item row")) {
-          console.info(`✅ Found flight data in response`);
+          // Count the number of list-item rows to determine if results changed
+          const currentResultsCount = (htmlContent.match(/list-item row/g) || []).length;
           
-          // Track current entity counts before extraction
-          const bundlesBefore = flightData.bundles.length;
-          const flightsBefore = flightData.flights.length;
-          const bookingOptionsBefore = flightData.bookingOptions.length;
-          
-          const extractedData = extractFlightDataFromResponse(htmlContent, 'sky');
-          mergeFlightData(flightData, extractedData);
-          
-          // Calculate new entities added after merging
-          const newBundles = flightData.bundles.length - bundlesBefore;
-          const newFlights = flightData.flights.length - flightsBefore;
-          const newBookingOptions = flightData.bookingOptions.length - bookingOptionsBefore;
-          
-          // Log only the new entities added
-          if (newBundles > 0 || newFlights > 0 || newBookingOptions > 0) {
-            console.info(`📈 Poll ${pollCount} added: ${newBundles} bundles, ${newFlights} flights, ${newBookingOptions} booking options`);
+          // Only scrape if results count changed or this is the first poll
+          if (currentResultsCount !== previousResultsCount || pollCount === 1) {
+            // Track current entity counts before extraction
+            const bundlesBefore = flightData.bundles.length;
+            const flightsBefore = flightData.flights.length;
+            const bookingOptionsBefore = flightData.bookingOptions.length;
+            
+            const extractedData = extractFlightDataFromResponse(htmlContent, 'sky');
+            mergeFlightData(flightData, extractedData);
+            
+            // Calculate new entities added after merging
+            const newBundles = flightData.bundles.length - bundlesBefore;
+            const newFlights = flightData.flights.length - flightsBefore;
+            const newBookingOptions = flightData.bookingOptions.length - bookingOptionsBefore;
+            
+            // Log only the new entities added
+            if (newBundles > 0 || newFlights > 0 || newBookingOptions > 0) {
+              logger.info(LogCategory.SCRAPING, `📈 Poll ${pollCount}: +${newBundles} bundles, +${newFlights} flights, +${newBookingOptions} options`);
+            }
           } else {
-            console.info(`📊 Poll ${pollCount}: No new entities added`);
+            logger.debug(LogCategory.SCRAPING, `⏭️ Poll ${pollCount}: No new results`);
           }
+          
+          // Update the previous results count
+          previousResultsCount = currentResultsCount;
 
           // Check if this is the last response
           if (isLastResponse) {
-            console.info(`🏁 Last response received (Y), stopping polling`);
+            logger.info(LogCategory.SCRAPING, `🏁 Sky polling completed`);
             return flightData;
           }
 
@@ -171,21 +161,19 @@ export async function pollForSkyFlightData(
           htmlContent.includes("No flights found") ||
           htmlContent.includes("No results")
         ) {
-          console.info(`❌ No flights found in response`);
+          logger.info(LogCategory.SCRAPING, `❌ No flights found`);
           return flightData;
         } else {
           // Still processing, wait and retry
-          console.info(`⏳ Still processing, waiting ${pollInterval}ms before retry`);
           await new Promise((resolve) => setTimeout(resolve, pollInterval));
           retryCount++;
         }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
-        console.warn(
-          `⚠️ Poll ${pollCount} attempt ${
-            retryCount + 1
-          } failed: ${errorMessage}`
+        logger.warn(
+          LogCategory.SCRAPING,
+          `⚠️ Poll ${pollCount} failed: ${errorMessage}`
         );
 
         // If it's a network error, wait a bit longer before retrying
@@ -203,10 +191,10 @@ export async function pollForSkyFlightData(
 
     if (!pollSuccess) {
       failedPolls++;
-      console.warn(`⚠️ Poll ${pollCount} failed after ${maxRetries} retries`);
+      logger.warn(LogCategory.SCRAPING, `⚠️ Poll ${pollCount} failed after ${maxRetries} retries`);
       
       if (failedPolls >= 3) {
-        console.error(`❌ Too many failed polls (${failedPolls}), stopping`);
+        logger.error(LogCategory.SCRAPING, `❌ Too many failed polls, stopping`);
         break;
       }
     }
@@ -215,6 +203,6 @@ export async function pollForSkyFlightData(
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 
-  console.info(`🏁 Polling completed: ${pollCount} attempts, ${failedPolls} failed`);
+  logger.info(LogCategory.SCRAPING, `🏁 Sky polling ended: ${pollCount} attempts, ${failedPolls} failed`);
   return flightData;
 } 

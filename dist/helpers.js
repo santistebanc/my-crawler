@@ -3,18 +3,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.createTimezonedDatetime = exports.addDaysToDateString = exports.parseDateString = void 0;
 exports.mapCabinClassForKiwi = mapCabinClassForKiwi;
 exports.buildPortalSearchParams = buildPortalSearchParams;
 exports.buildKiwiPortalSearchParams = buildKiwiPortalSearchParams;
 exports.buildPortalUrl = buildPortalUrl;
 exports.extractSessionCookie = extractSessionCookie;
-exports.parseDateString = parseDateString;
-exports.addDaysToDateString = addDaysToDateString;
-exports.createTimezonedDatetime = createTimezonedDatetime;
 exports.mergeFlightData = mergeFlightData;
-const date_fns_1 = require("date-fns");
-const luxon_1 = require("luxon");
 const airports_json_1 = __importDefault(require("./airports.json"));
+const dateUtils_1 = require("./dateUtils");
+Object.defineProperty(exports, "parseDateString", { enumerable: true, get: function () { return dateUtils_1.parseDateString; } });
+Object.defineProperty(exports, "addDaysToDateString", { enumerable: true, get: function () { return dateUtils_1.addDaysToDateString; } });
+Object.defineProperty(exports, "createTimezonedDatetime", { enumerable: true, get: function () { return dateUtils_1.createTimezonedDatetime; } });
+const logger_1 = require("./logger");
 // Use the .data property for lookups
 const airportsData = airports_json_1.default.data;
 /**
@@ -53,28 +54,13 @@ function buildPortalSearchParams(requestParams) {
  * @returns URLSearchParams object ready to be used in URL construction
  */
 function buildKiwiPortalSearchParams(requestParams) {
-    // Convert date format from YYYY-MM-DD to dd/MM/yyyy for Kiwi
-    const formatDateForKiwi = (dateStr) => {
-        if (!dateStr)
-            return "";
-        try {
-            const date = (0, date_fns_1.parse)(dateStr, "yyyy-MM-dd", new Date());
-            if ((0, date_fns_1.isValid)(date)) {
-                return (0, date_fns_1.format)(date, "dd/MM/yyyy");
-            }
-        }
-        catch (error) {
-            console.warn(`⚠️ Could not parse date for Kiwi: ${dateStr}`);
-        }
-        return dateStr;
-    };
     return new URLSearchParams({
         currency: requestParams.currency,
         cabinclass: mapCabinClassForKiwi(requestParams.cabinclass),
         originplace: requestParams.originplace || "",
         destinationplace: requestParams.destinationplace || "",
-        outbounddate: formatDateForKiwi(requestParams.outbounddate || ""),
-        inbounddate: formatDateForKiwi(requestParams.inbounddate || ""),
+        outbounddate: (0, dateUtils_1.formatDateForKiwi)(requestParams.outbounddate || ""),
+        inbounddate: (0, dateUtils_1.formatDateForKiwi)(requestParams.inbounddate || ""),
         adults: requestParams.adults.toString(),
         children: requestParams.children.toString(),
         infants: requestParams.infants.toString(),
@@ -113,94 +99,6 @@ function extractSessionCookie(setCookieHeader) {
     return "";
 }
 /**
- * Parses a date string in the format "EEE, dd MMM yyyy"
- */
-function parseDateString(dateStr) {
-    try {
-        const parsedDate = (0, date_fns_1.parse)(dateStr, "EEE, dd MMM yyyy", new Date());
-        return (0, date_fns_1.isValid)(parsedDate) ? parsedDate : null;
-    }
-    catch (error) {
-        return null;
-    }
-}
-/**
- * Adds days to a date string and returns the new date string
- */
-function addDaysToDateString(dateStr, days) {
-    try {
-        const parsedDate = parseDateString(dateStr);
-        if (!parsedDate)
-            return dateStr;
-        const adjustedDate = (0, date_fns_1.addDays)(parsedDate, days);
-        return (0, date_fns_1.format)(adjustedDate, "EEE, dd MMM yyyy");
-    }
-    catch (error) {
-        return dateStr;
-    }
-}
-/**
- * Creates a timezoned datetime string
- */
-function createTimezonedDatetime(dateStr, timeStr, timezone) {
-    try {
-        const parsedDate = parseDateString(dateStr) || new Date();
-        // Parse the time string using date-fns
-        let timeDate;
-        if (timeStr.match(/^\d{1,2}:\d{2}$/)) {
-            timeDate = (0, date_fns_1.parse)(timeStr, "HH:mm", new Date());
-        }
-        else {
-            timeDate = (0, date_fns_1.parse)(timeStr, "h:mm a", new Date());
-        }
-        if (!(0, date_fns_1.isValid)(timeDate)) {
-            console.warn(`⚠️ Could not parse time string: "${timeStr}"`);
-            return "";
-        }
-        // Combine the date and time
-        const combinedDate = new Date(parsedDate);
-        combinedDate.setHours(timeDate.getHours(), timeDate.getMinutes(), 0, 0);
-        // Use Luxon for all timezone handling
-        let dt;
-        if (!timezone || timezone === "\\N" || timezone === "null") {
-            // Default to UTC for missing or null timezones
-            dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" });
-        }
-        else if (timezone.startsWith('UTC')) {
-            // Handle UTC±HH:MM format
-            const tz = timezone.replace('−', '-').replace('–', '-');
-            const match = tz.match(/^UTC([+-])(\d{2}):(\d{2})$/);
-            if (match) {
-                const sign = match[1] === '-' ? -1 : 1;
-                const hours = parseInt(match[2], 10);
-                const minutes = parseInt(match[3], 10);
-                const offsetMinutes = sign * (hours * 60 + minutes);
-                // Create a DateTime in the specified offset timezone
-                dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" }).plus({ minutes: offsetMinutes });
-                // Convert to the offset timezone string format
-                const offsetStr = `${sign === 1 ? '+' : '-'}${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                return dt.toFormat("yyyy-MM-dd'T'HH:mm:ss.SSS") + offsetStr;
-            }
-            else {
-                dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" });
-            }
-        }
-        else {
-            // Handle IANA timezone format (e.g., "Australia/Perth", "Europe/Vienna")
-            dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: timezone });
-            if (!dt.isValid) {
-                dt = luxon_1.DateTime.fromJSDate(combinedDate, { zone: "UTC" });
-            }
-        }
-        // Return ISO string with timezone offset
-        return dt.toISO() || '';
-    }
-    catch (error) {
-        console.warn(`⚠️ Error creating timezoned datetime: ${error}`);
-        return luxon_1.DateTime.fromJSDate(new Date()).toUTC().toISO() || '';
-    }
-}
-/**
  * Merges flight data from source into target
  */
 function mergeFlightData(target, source) {
@@ -234,7 +132,12 @@ function mergeFlightData(target, source) {
             if (newDate > existingDate && timeDiffMinutes > 1) {
                 // Replace with the more recently extracted booking option only if difference > 1min
                 target.bookingOptions[existingBookingOptionIndex] = bookingOption;
-                console.info(`🕒 Replaced booking option ${bookingOption.uniqueId} with newer extraction (${timeDiffMinutes.toFixed(1)}min diff): ${existingDate.toISOString()} → ${newDate.toISOString()}`);
+                logger_1.logger.debug(logger_1.LogCategory.DATA, `Replaced booking option with newer extraction`, {
+                    bookingOptionId: bookingOption.uniqueId,
+                    timeDiffMinutes: timeDiffMinutes.toFixed(1),
+                    oldDate: existingDate.toISOString(),
+                    newDate: newDate.toISOString()
+                });
             }
         }
     });

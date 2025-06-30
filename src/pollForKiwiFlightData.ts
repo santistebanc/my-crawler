@@ -9,6 +9,7 @@ import {
   mergeFlightData,
 } from "./helpers";
 import { extractFlightDataFromResponse } from "./extractFlightDataFromResponse";
+import { logger, LogCategory } from "./logger";
 
 /**
  * Handles Kiwi portal which uses a single search request
@@ -18,7 +19,7 @@ export async function pollForKiwiFlightData(
   requestParams: KiwiRequestParams
 ): Promise<FlightData> {
   const searchUrl = "https://www.flightsfinder.com/portal/kiwi/search";
-  console.info(`🚀 Starting Kiwi portal search at ${searchUrl}`);
+  logger.info(LogCategory.SCRAPING, `🚀 Starting Kiwi search`);
 
   // Construct the referer URL using helper
   const refererUrl = buildPortalUrl("kiwi", requestParams);
@@ -28,6 +29,7 @@ export async function pollForKiwiFlightData(
   let flightData: FlightData = { bundles: [], flights: [], bookingOptions: [] };
   let attempt = 0;
   const maxAttempts = 3;
+  let previousResultsCount = 0; // Track previous attempt's result count
 
   while (!isLastResponse && attempt < maxAttempts) {
     attempt++;
@@ -63,76 +65,68 @@ export async function pollForKiwiFlightData(
         "bags-checked": "0",
       }).toString();
 
-      console.info(`📤 Sending Kiwi search request (attempt ${attempt})`);
-
       const response = await fetch(searchUrl, {
         method: "POST",
         headers,
         body: formData,
       });
 
-      console.info(
-        `📥 Kiwi search response: status=${
-          response.status
-        }, content-type=${response.headers.get("content-type")}`
-      );
-
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const rawData = await response.text();
-      console.info(
-        `📄 Kiwi search raw response length: ${rawData.length} characters`
-      );
 
       // Parse the pipe-delimited response format
       const responseParts = rawData.split("|");
       if (responseParts.length < 7) {
-        console.warn(
-          `⚠️ Invalid Kiwi response format: expected at least 7 parts, got ${responseParts.length}`
-        );
+        logger.warn(LogCategory.SCRAPING, `⚠️ Invalid Kiwi response format`);
         break;
       }
 
       isLastResponse = responseParts[0] === "Y";
       const htmlContent = responseParts[6];
-      console.info(
-        `📊 Kiwi poll status: ${responseParts[0]} (${
-          isLastResponse ? "LAST" : "MORE"
-        }) data`
-      );
-      console.info(
-        `📄 Kiwi HTML content length: ${htmlContent.length} characters`
-      );
 
       if (htmlContent.includes("list-item row")) {
-        const extractedData = extractFlightDataFromResponse(
-          htmlContent,
-          "kiwi"
-        );
-        // Merge results using the helper function
-        mergeFlightData(flightData, extractedData);
-        console.info(
-          `📊 Kiwi poll extracted: ${extractedData.bundles.length} bundles, ${extractedData.flights.length} flights, ${extractedData.bookingOptions.length} booking options`
-        );
+        // Count the number of list-item rows to determine if results changed
+        const currentResultsCount = (htmlContent.match(/list-item row/g) || []).length;
+        
+        // Only scrape if results count changed or this is the first attempt
+        if (currentResultsCount !== previousResultsCount || attempt === 1) {
+          const extractedData = extractFlightDataFromResponse(
+            htmlContent,
+            "kiwi"
+          );
+          // Merge results using the helper function
+          mergeFlightData(flightData, extractedData);
+          logger.info(
+            LogCategory.SCRAPING,
+            `📈 Kiwi: +${extractedData.bundles.length} bundles, +${extractedData.flights.length} flights, +${extractedData.bookingOptions.length} options`
+          );
+        } else {
+          logger.debug(LogCategory.SCRAPING, `⏭️ Kiwi attempt ${attempt}: No new results`);
+        }
+        
+        // Update the previous results count
+        previousResultsCount = currentResultsCount;
       } else if (
         htmlContent.includes("No flights found") ||
         htmlContent.includes("No results")
       ) {
-        console.info(`❌ No flights found in Kiwi response`);
+        logger.info(LogCategory.SCRAPING, `❌ No flights found in Kiwi`);
         break;
       } else {
-        console.warn(`⚠️ Unexpected Kiwi response format`);
+        logger.warn(LogCategory.SCRAPING, `⚠️ Unexpected Kiwi response format`);
         break;
       }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      console.error(`❌ Error in Kiwi portal search: ${errorMessage}`);
+      logger.error(LogCategory.SCRAPING, `❌ Kiwi search error: ${errorMessage}`);
       break;
     }
   }
 
+  logger.info(LogCategory.SCRAPING, `🏁 Kiwi search completed`);
   return flightData;
 }
